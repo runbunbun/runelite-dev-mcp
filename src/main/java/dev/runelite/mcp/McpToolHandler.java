@@ -120,10 +120,6 @@ public class McpToolHandler {
      * Executes on the client thread since RuneLite's Client is not thread-safe.
      */
     public String handleToolCall(String toolName, String args) {
-        if ("screenshot".equals(toolName)) {
-            try { return handleScreenshot(); }
-            catch (Exception e) { return errorResponse(e.getMessage()); }
-        }
         if ("loginstate".equals(toolName)) {
             try { return handleToolCallInner(toolName, args); }
             catch (Exception e) { return errorResponse(e.getMessage()); }
@@ -483,54 +479,50 @@ public class McpToolHandler {
         mouse.add(mx); mouse.add(my);
         root.add("mouse", mouse);
 
+        // Walk the live widget tree from the currently-loaded interface roots instead of
+        // scanning a hardcoded group list. Catches dynamically-loaded interfaces (bank
+        // search, prayer book swaps, etc.) without maintaining a stale id list, and only
+        // recurses into containers whose bounds actually contain the cursor.
         JsonArray widgets = new JsonArray();
-        int[] groups = {149, 541, 548, 160, 162, 163, 593, 387, 320, 218, 116, 182, 399, 161, 164};
-        for (int g : groups) {
-            for (int c = 0; c < 120; c++) {
-                net.runelite.api.widgets.Widget w = client.getWidget(g, c);
-                if (w == null || w.isHidden()) continue;
-                Rectangle bounds = w.getBounds();
-                if (bounds.width <= 0 || bounds.height <= 0) continue;
-                if (!bounds.contains(mx, my)) continue;
-
-                JsonObject wj = new JsonObject();
-                wj.addProperty("group", g);
-                wj.addProperty("child", c);
-                wj.add("bounds", boundsArray(bounds));
-                if (w.getText() != null && !w.getText().isEmpty()) wj.addProperty("text", w.getText());
-                if (w.getName() != null && !w.getName().isEmpty()) wj.addProperty("name", w.getName());
-                wj.addProperty("itemId", w.getItemId());
-                if (w.getActions() != null) {
-                    JsonArray a = nonEmptyActionsArray(w.getActions());
-                    if (a.size() > 0) wj.add("actions", a);
-                }
-
-                JsonArray children = new JsonArray();
-                net.runelite.api.widgets.Widget[] kids = w.getDynamicChildren();
-                if (kids != null) {
-                    for (net.runelite.api.widgets.Widget dc : kids) {
-                        if (dc == null || dc.isHidden()) continue;
-                        Rectangle db = dc.getBounds();
-                        if (db.width <= 0 || db.height <= 0) continue;
-                        if (!db.contains(mx, my)) continue;
-                        JsonObject cj = new JsonObject();
-                        cj.addProperty("index", dc.getIndex());
-                        cj.add("bounds", boundsArray(db));
-                        if (dc.getText() != null && !dc.getText().isEmpty()) cj.addProperty("text", dc.getText());
-                        if (dc.getName() != null && !dc.getName().isEmpty()) cj.addProperty("name", dc.getName());
-                        if (dc.getActions() != null) {
-                            JsonArray a = nonEmptyActionsArray(dc.getActions());
-                            if (a.size() > 0) cj.add("actions", a);
-                        }
-                        children.add(cj);
-                    }
-                }
-                if (children.size() > 0) wj.add("children", children);
-                widgets.add(wj);
+        net.runelite.api.widgets.Widget[] roots = client.getWidgetRoots();
+        if (roots != null) {
+            for (net.runelite.api.widgets.Widget w : roots) {
+                collectWidgetsAtPoint(w, mx, my, widgets);
             }
         }
         root.add("widgets", widgets);
         return root.toString();
+    }
+
+    /** Depth-first collect every visible widget whose bounds contain (mx, my). Flat output. */
+    private void collectWidgetsAtPoint(net.runelite.api.widgets.Widget w, int mx, int my, JsonArray out) {
+        if (w == null || w.isHidden()) return;
+        Rectangle b = w.getBounds();
+        if (b.width <= 0 || b.height <= 0) return;
+        if (!b.contains(mx, my)) return;
+
+        JsonObject wj = new JsonObject();
+        int id = w.getId();
+        wj.addProperty("group", id >>> 16);
+        wj.addProperty("child", id & 0xFFFF);
+        wj.add("bounds", boundsArray(b));
+        if (w.getText() != null && !w.getText().isEmpty()) wj.addProperty("text", w.getText());
+        if (w.getName() != null && !w.getName().isEmpty()) wj.addProperty("name", w.getName());
+        if (w.getItemId() > 0) wj.addProperty("itemId", w.getItemId());
+        if (w.getActions() != null) {
+            JsonArray a = nonEmptyActionsArray(w.getActions());
+            if (a.size() > 0) wj.add("actions", a);
+        }
+        out.add(wj);
+
+        recurseKids(w.getStaticChildren(), mx, my, out);
+        recurseKids(w.getDynamicChildren(), mx, my, out);
+        recurseKids(w.getNestedChildren(), mx, my, out);
+    }
+
+    private void recurseKids(net.runelite.api.widgets.Widget[] kids, int mx, int my, JsonArray out) {
+        if (kids == null) return;
+        for (net.runelite.api.widgets.Widget c : kids) collectWidgetsAtPoint(c, mx, my, out);
     }
 
     // ========== Screenshot ==========
@@ -538,13 +530,12 @@ public class McpToolHandler {
     /**
      * Captures the rendered game frame via {@link DrawManager#requestNextFrameListener},
      * which delivers the actual canvas pixels — independent of whether other windows are
-     * covering the RuneLite client on screen. Returns the raw base64-encoded PNG.
-     * {@link McpHttpServer#handleToolsCall} special-cases the {@code screenshot} tool name
-     * and wraps this payload in an MCP {@code image} content item so the client renders
-     * it inline rather than as a base64 text blob.
-     * Returns a string starting with {@code "Error:"} on failure.
+     * covering the RuneLite client on screen. Returns raw PNG bytes; throws on timeout or
+     * encode failure. {@link McpHttpServer#handleToolsCall} calls this directly and wraps
+     * the bytes as an MCP {@code image} content item (or routes exceptions through the
+     * standard error envelope).
      */
-    private String handleScreenshot() {
+    public byte[] captureScreenshot() throws Exception {
         CompletableFuture<BufferedImage> future = new CompletableFuture<>();
         drawManager.requestNextFrameListener(image -> {
             try {
@@ -562,17 +553,10 @@ public class McpToolHandler {
                 future.completeExceptionally(t);
             }
         });
-
-        try {
-            BufferedImage img = future.get(2, TimeUnit.SECONDS);
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(img, "png", baos);
-            return Base64.getEncoder().encodeToString(baos.toByteArray());
-        } catch (java.util.concurrent.TimeoutException e) {
-            return "Error: Timed out waiting for next rendered frame";
-        } catch (Exception e) {
-            return "Error capturing screenshot: " + e.getMessage();
-        }
+        BufferedImage img = future.get(2, TimeUnit.SECONDS);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(img, "png", baos);
+        return baos.toByteArray();
     }
 
     // ========== Menu ==========

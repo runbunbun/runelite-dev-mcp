@@ -271,19 +271,19 @@ public class McpHttpServer {
         String argsStr = extractObject(paramsStr, "arguments");
         if (toolName == null) return jsonRpcError(id, -32602, "Missing tool name");
 
+        // Screenshot has a binary payload; route it directly to the typed capture method
+        // and wrap as MCP image content. No string sentinel; failures throw and land in
+        // the standard error envelope below.
+        if ("screenshot".equals(toolName)) {
+            return handleScreenshotCall(id);
+        }
+
         JsonObject content = new JsonObject();
         try {
             String toolResult = toolHandler.handleToolCall(toolName, argsStr != null ? argsStr : "{}");
             JsonObject item = new JsonObject();
-            if ("screenshot".equals(toolName) && !toolResult.startsWith("Error")) {
-                // Screenshot returns raw base64 PNG; wrap as MCP image content for inline render.
-                item.addProperty("type", "image");
-                item.addProperty("data", toolResult);
-                item.addProperty("mimeType", "image/png");
-            } else {
-                item.addProperty("type", "text");
-                item.addProperty("text", toolResult);
-            }
+            item.addProperty("type", "text");
+            item.addProperty("text", toolResult);
             JsonArray arr = new JsonArray();
             arr.add(item);
             content.add("content", arr);
@@ -297,6 +297,28 @@ public class McpHttpServer {
             content.add("content", arr);
             content.addProperty("isError", true);
         }
+        return jsonRpcResult(id, content);
+    }
+
+    private String handleScreenshotCall(String id) {
+        JsonObject content = new JsonObject();
+        JsonObject item = new JsonObject();
+        try {
+            byte[] png = toolHandler.captureScreenshot();
+            item.addProperty("type", "image");
+            item.addProperty("data", java.util.Base64.getEncoder().encodeToString(png));
+            item.addProperty("mimeType", "image/png");
+            content.addProperty("isError", false);
+        } catch (Exception e) {
+            item.addProperty("type", "text");
+            item.addProperty("text", e.getMessage() != null
+                ? "Screenshot failed: " + e.getMessage()
+                : "Screenshot failed: " + e.getClass().getSimpleName());
+            content.addProperty("isError", true);
+        }
+        JsonArray arr = new JsonArray();
+        arr.add(item);
+        content.add("content", arr);
         return jsonRpcResult(id, content);
     }
 
