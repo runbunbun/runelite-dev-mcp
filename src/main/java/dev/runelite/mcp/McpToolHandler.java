@@ -725,6 +725,7 @@ public class McpToolHandler {
         Skill[] skills = Skill.values();
         for (int i = 0; i < skills.length; i++) {
             if (skills[i] == Skill.OVERALL) continue;
+            if ("Sailing".equals(skills[i].getName())) continue; // future-content placeholder
             int real = world.getSkillLevel(i);
             int boosted = world.getBoostedLevel(i);
             if (real <= 1 && boosted <= 1) continue;

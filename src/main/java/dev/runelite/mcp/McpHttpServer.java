@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -101,7 +102,7 @@ public class McpHttpServer {
         String accept = ex.getRequestHeaders().getFirst("Accept");
         String sidIn = ex.getRequestHeaders().getFirst("Mcp-Session-Id");
         String proto = ex.getRequestHeaders().getFirst("Mcp-Protocol-Version");
-        log.info("MCP " + httpMethod + " path=" + ex.getRequestURI()
+        log.fine(() -> "MCP " + httpMethod + " path=" + ex.getRequestURI()
             + " accept=" + accept + " sid=" + sidIn + " proto=" + proto);
 
         applyCors(ex);
@@ -153,7 +154,14 @@ public class McpHttpServer {
 
         String id = parseStringField(body, "id");
         String method = parseStringField(body, "method");
-        log.info("MCP POST body method=" + method + " id=" + id + " body=" + body);
+        // A request with no "id" field is a notification per JSON-RPC 2.0 — no response.
+        // (parseStringField returns null both for missing fields and for explicit JSON null,
+        // so we need hasField to distinguish; "id":null is still a request.)
+        boolean isNotification = !hasField(body, "id");
+        final String finalBody = body;
+        final String finalMethod = method;
+        final String finalId = id;
+        log.fine(() -> "MCP POST body method=" + finalMethod + " id=" + finalId + " body=" + finalBody);
 
         // Mint a session id on initialize so streamable-HTTP clients can use it on later requests
         if ("initialize".equals(method)) {
@@ -194,15 +202,19 @@ public class McpHttpServer {
                 }
         }
 
-        // JSON-RPC notifications get 202 Accepted with no body (per streamable-HTTP spec)
-        if (result == null) {
-            log.info("MCP POST response=202 (notification)");
+        // JSON-RPC notifications get 202 Accepted with no body (per streamable-HTTP spec).
+        // Both explicit notifications/* methods (result == null from the switch above) and
+        // any id-less request qualify.
+        if (result == null || isNotification) {
+            log.fine("MCP POST response=202 (notification)");
             ex.sendResponseHeaders(202, -1);
             ex.close();
             return;
         }
 
-        log.info("MCP POST response=200 body=" + (result.length() > 500 ? result.substring(0, 500) + "..." : result));
+        final String finalResult = result;
+        log.fine(() -> "MCP POST response=200 body="
+            + (finalResult.length() > 500 ? finalResult.substring(0, 500) + "..." : finalResult));
         sendJson(ex, 200, result);
     }
 
@@ -253,11 +265,11 @@ public class McpHttpServer {
 
     private String handleToolsCall(String id, String body) {
         String paramsStr = extractObject(body, "params");
-        if (paramsStr == null) return jsonRpcError(id, -32603, "Missing params");
+        if (paramsStr == null) return jsonRpcError(id, -32602, "Missing params");
 
         String toolName = parseStringField(paramsStr, "name");
         String argsStr = extractObject(paramsStr, "arguments");
-        if (toolName == null) return jsonRpcError(id, -32603, "Missing tool name");
+        if (toolName == null) return jsonRpcError(id, -32602, "Missing tool name");
 
         JsonObject content = new JsonObject();
         try {
@@ -372,52 +384,37 @@ public class McpHttpServer {
         return false;
     }
 
+    /**
+     * Returns the value of {@code field} from a JSON object string as a String: strings
+     * come back unquoted (and properly unescaped), numbers/booleans come back as their
+     * string form, arrays/objects come back as their raw JSON serialization (so existing
+     * CSV-stripping callers still work). Returns null when the field is missing, JSON-null,
+     * or the input doesn't parse.
+     */
     static String parseStringField(String json, String field) {
-        // Handles both "field":"value" and "field":123
-        String key = "\"" + field + "\":";
-        int idx = json.indexOf(key);
-        if (idx < 0) return null;
-        idx += key.length();
-        while (idx < json.length() && json.charAt(idx) == ' ') idx++;
-        if (idx >= json.length()) return null;
-
-        if (json.charAt(idx) == '"') {
-            // String value
-            idx++;
-            int end = json.indexOf('"', idx);
-            if (end < 0) return null;
-            return json.substring(idx, end);
-        } else if (json.charAt(idx) == 'n') {
-            return null; // null
-        } else {
-            // Number or other literal
-            int end = idx;
-            while (end < json.length() && json.charAt(end) != ',' && json.charAt(end) != '}'
-                && json.charAt(end) != ' ') end++;
-            return json.substring(idx, end);
-        }
+        JsonElement el = readField(json, field);
+        if (el == null || el.isJsonNull()) return null;
+        if (el.isJsonPrimitive()) return el.getAsString();
+        return el.toString();
     }
 
-    /** Extract a nested JSON object value for a given key. Handles brace nesting. */
+    /** Returns the value of {@code field} as a serialized JSON object string, or null. */
     static String extractObject(String json, String field) {
-        String key = "\"" + field + "\":";
-        int idx = json.indexOf(key);
-        if (idx < 0) return null;
-        idx += key.length();
-        while (idx < json.length() && json.charAt(idx) == ' ') idx++;
-        if (idx >= json.length() || json.charAt(idx) != '{') return null;
-
-        int depth = 0;
-        int start = idx;
-        for (int i = idx; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (c == '{') depth++;
-            else if (c == '}') {
-                depth--;
-                if (depth == 0) return json.substring(start, i + 1);
-            }
-        }
-        return null;
+        JsonElement el = readField(json, field);
+        if (el == null || !el.isJsonObject()) return null;
+        return el.toString();
     }
 
+    /** True iff the JSON root object has {@code field} (regardless of value, including JSON-null). */
+    static boolean hasField(String json, String field) {
+        if (json == null || json.isEmpty()) return false;
+        try { return new JsonParser().parse(json).getAsJsonObject().has(field); }
+        catch (Exception e) { return false; }
+    }
+
+    private static JsonElement readField(String json, String field) {
+        if (json == null || json.isEmpty()) return null;
+        try { return new JsonParser().parse(json).getAsJsonObject().get(field); }
+        catch (Exception e) { return null; }
+    }
 }

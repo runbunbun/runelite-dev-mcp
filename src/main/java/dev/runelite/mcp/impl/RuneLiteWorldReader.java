@@ -620,11 +620,12 @@ public class RuneLiteWorldReader implements WorldReader {
         int prayerPts = client.getBoostedSkillLevel(Skill.PRAYER);
         int maxPrayer = client.getRealSkillLevel(Skill.PRAYER);
         int runEnergy = client.getEnergy();
-        int specEnergy = client.getVarpValue(300) / 10; // VarPlayer SPECIAL_ATTACK_PERCENT
+        int specEnergy = client.getVarpValue(VarPlayer.SPECIAL_ATTACK_PERCENT) / 10;
+        // VarPlayer.RUN isn't on the runelite-api 1.12.x surface; use the raw id.
         boolean runEnabled = client.getVarpValue(173) == 1;
 
         // Status effects from varps + varbits
-        int poisonVarp = client.getVarpValue(102); // VarPlayer.POISON
+        int poisonVarp = client.getVarpValue(VarPlayer.POISON);
         boolean poisoned = poisonVarp > 0 && poisonVarp < 1000000;
         boolean venomed = poisonVarp >= 1000000;
         // Negative POISON varp = immunity timer counting up to 0. Threshold -38 separates
