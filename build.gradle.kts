@@ -31,6 +31,7 @@ dependencies {
     annotationProcessor("org.pf4j:pf4j:3.6.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+    testImplementation("com.google.code.gson:gson:2.10.1")
 }
 
 tasks.test {

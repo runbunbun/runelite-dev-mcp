@@ -7,7 +7,6 @@ import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpExchange;
 import net.runelite.api.Client;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.config.ConfigManager;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -30,19 +29,17 @@ public class McpRestHandler {
 
     private final Client client;
     private final ClientThread clientThread;
-    private final ConfigManager configManager;
     private final long startMs = System.currentTimeMillis();
 
-    public McpRestHandler(Client client, ClientThread clientThread, ConfigManager configManager) {
+    public McpRestHandler(Client client, ClientThread clientThread) {
         this.client = client;
         this.clientThread = clientThread;
-        this.configManager = configManager;
     }
 
     public void handle(HttpExchange ex) throws IOException {
-        ex.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-        ex.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, OPTIONS");
-        ex.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+        // Same allow-list as /mcp — REST endpoints expose game state (status, bank-widget
+        // debug) and need the same protection against drive-by browser exfiltration.
+        McpHttpServer.applyCors(ex);
 
         if ("OPTIONS".equals(ex.getRequestMethod())) {
             ex.sendResponseHeaders(204, -1);
@@ -191,6 +188,7 @@ public class McpRestHandler {
     private static void sendJson(HttpExchange ex, int status, String json) throws IOException {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", "application/json");
+        McpHttpServer.applyCors(ex);
         ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = ex.getResponseBody()) {
             os.write(bytes);

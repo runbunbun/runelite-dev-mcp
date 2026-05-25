@@ -10,7 +10,6 @@ import com.sun.net.httpserver.HttpServer;
 import dev.runelite.mcp.api.WorldReader;
 import net.runelite.api.Client;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.DrawManager;
 
 import java.io.*;
@@ -37,7 +36,6 @@ public class McpHttpServer {
     private final int port;
     private final Client client;
     private final ClientThread clientThread;
-    private final ConfigManager configManager;
     private final WorldReader world;
     private final StateBuffer stateBuffer;
     private final ActionLog actionLog;
@@ -48,17 +46,16 @@ public class McpHttpServer {
     private final List<OutputStream> getStreamClients = new CopyOnWriteArrayList<>();
     private final Map<String, Long> sessions = new ConcurrentHashMap<>();
 
-    public McpHttpServer(int port, Client client, ClientThread clientThread, ConfigManager configManager,
+    public McpHttpServer(int port, Client client, ClientThread clientThread,
                          WorldReader world, StateBuffer stateBuffer, ActionLog actionLog, DrawManager drawManager) {
         this.port = port;
         this.client = client;
         this.clientThread = clientThread;
-        this.configManager = configManager;
         this.world = world;
         this.stateBuffer = stateBuffer;
         this.actionLog = actionLog;
-        this.toolHandler = new McpToolHandler(client, clientThread, configManager, world, stateBuffer, actionLog, drawManager);
-        this.restHandler = new McpRestHandler(client, clientThread, configManager);
+        this.toolHandler = new McpToolHandler(client, clientThread, world, stateBuffer, actionLog, drawManager);
+        this.restHandler = new McpRestHandler(client, clientThread);
     }
 
     public void start() throws IOException {
@@ -306,7 +303,7 @@ public class McpHttpServer {
     // ========== JSON Utilities ==========
 
     /** Build a JSON-RPC 2.0 success envelope around {@code result}. */
-    private static String jsonRpcResult(String id, JsonElement result) {
+    static String jsonRpcResult(String id, JsonElement result) {
         JsonObject env = new JsonObject();
         env.addProperty("jsonrpc", "2.0");
         env.add("id", parseId(id));
@@ -315,7 +312,7 @@ public class McpHttpServer {
     }
 
     /** Build a JSON-RPC 2.0 error envelope. */
-    private static String jsonRpcError(String id, int code, String message) {
+    static String jsonRpcError(String id, int code, String message) {
         JsonObject env = new JsonObject();
         env.addProperty("jsonrpc", "2.0");
         env.add("id", parseId(id));
@@ -331,7 +328,7 @@ public class McpHttpServer {
      * raw substring it found, so we try numeric first and fall back to string. Missing id
      * becomes JSON {@code null} per the spec.
      */
-    private static JsonElement parseId(String id) {
+    static JsonElement parseId(String id) {
         if (id == null) return JsonNull.INSTANCE;
         try { return new JsonPrimitive(Long.parseLong(id)); }
         catch (NumberFormatException ignored) {}
@@ -356,7 +353,7 @@ public class McpHttpServer {
      * so a missing Origin is fine. A present-but-unrecognized Origin (a random webpage
      * the user visited) gets no CORS headers, and the browser then blocks the response.
      */
-    private static void applyCors(HttpExchange ex) {
+    static void applyCors(HttpExchange ex) {
         String origin = ex.getRequestHeaders().getFirst("Origin");
         if (origin == null) return;
         if (!isOriginAllowed(origin)) return;

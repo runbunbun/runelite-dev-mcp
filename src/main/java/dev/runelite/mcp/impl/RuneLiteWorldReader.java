@@ -3,7 +3,10 @@ package dev.runelite.mcp.impl;
 import net.runelite.api.*;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.api.widgets.Widget;
+import net.runelite.client.eventbus.Subscribe;
 import dev.runelite.mcp.api.WorldReader;
 import dev.runelite.mcp.api.snapshot.*;
 
@@ -63,6 +66,24 @@ public class RuneLiteWorldReader implements WorldReader {
         groundItems.remove(key);
     }
 
+    /**
+     * Funnels {@code HitsplatApplied} into the per-actor buffer that backs each
+     * {@code PlayerSnapshot}/{@code NpcSnapshot}'s {@code recentHitsplats}. Registered on
+     * RuneLite's EventBus by {@link dev.runelite.mcp.DevMcpPlugin} at startUp.
+     */
+    @Subscribe
+    public void onHitsplatApplied(HitsplatApplied e) {
+        Hitsplat h = e.getHitsplat();
+        if (h == null) return;
+        recordHitsplat(e.getActor(), h.getAmount(), h.getHitsplatType(), client.getTickCount());
+    }
+
+    /** Ages out stale entries from the per-actor hitsplat buffer once per tick. */
+    @Subscribe
+    public void onGameTick(GameTick e) {
+        pruneHitsplats(client.getTickCount());
+    }
+
     public void recordHitsplat(Actor actor, int amount, int type, int currentTick) {
         if (actor == null) return;
         synchronized (hitsplatBuf) {
@@ -71,7 +92,6 @@ public class RuneLiteWorldReader implements WorldReader {
         }
     }
 
-    /** Called once per GameTick to age out old hits. */
     public void pruneHitsplats(int currentTick) {
         synchronized (hitsplatBuf) {
             Iterator<Map.Entry<Actor, LinkedList<TickedHit>>> it = hitsplatBuf.entrySet().iterator();
@@ -143,7 +163,8 @@ public class RuneLiteWorldReader implements WorldReader {
 
             boolean inCombat = npc.getInteracting() != null
                 && npc.getInteracting() instanceof Player;
-            int overheadIcon = -1; // RuneLite exposes this differently per version
+            // NPC.getOverheadIcon() is not on the runelite-api 1.12.x surface; skip for NPCs.
+            int overheadIcon = -1;
 
             result.add(new NpcSnapshot(
                 npc.getIndex(), npc.getId(), name, combatLevel,
@@ -602,10 +623,18 @@ public class RuneLiteWorldReader implements WorldReader {
         int specEnergy = client.getVarpValue(300) / 10; // VarPlayer SPECIAL_ATTACK_PERCENT
         boolean runEnabled = client.getVarpValue(173) == 1;
 
-        // Status effects from varps
+        // Status effects from varps + varbits
         int poisonVarp = client.getVarpValue(102); // VarPlayer.POISON
         boolean poisoned = poisonVarp > 0 && poisonVarp < 1000000;
         boolean venomed = poisonVarp >= 1000000;
+        // Negative POISON varp = immunity timer counting up to 0. Threshold -38 separates
+        // ordinary poison immunity from venom immunity (set by anti-venom / anti-venom+).
+        boolean antiPoisoned = poisonVarp < 0;
+        boolean antiVenomed = poisonVarp <= -38;
+        boolean staminaBoosted = client.getVarbitValue(Varbits.STAMINA_EFFECT) == 1;
+        boolean antifired = client.getVarbitValue(Varbits.ANTIFIRE) > 0;
+        // SUPERANTIFIRE isn't on the runelite-api 1.12.x Varbits surface; use the raw id.
+        boolean superAntifired = client.getVarbitValue(3984) > 0;
 
         // Active prayers — check each prayer's varbit
         List<String> activePrayers = new ArrayList<>();
@@ -627,8 +656,9 @@ public class RuneLiteWorldReader implements WorldReader {
             prayerPts, maxPrayer,
             runEnergy, specEnergy, runEnabled,
             poisoned, venomed,
-            false, false, false, false, false, // stamina/antifire/etc — need varbit checks
-            -1, -1, // overhead/skull icons
+            staminaBoosted, antifired, superAntifired, antiPoisoned, antiVenomed,
+            p.getOverheadIcon() != null ? p.getOverheadIcon().ordinal() : -1,
+            p.getSkullIcon(),
             weaponId,
             interacting != null, interactingIdx, interactingType, interactingName,
             activePrayers,

@@ -16,7 +16,6 @@ import net.runelite.api.MenuEntry;
 import net.runelite.api.MessageNode;
 import net.runelite.api.Skill;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.DrawManager;
 
 import javax.imageio.ImageIO;
@@ -33,7 +32,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -47,22 +45,18 @@ import java.util.stream.Collectors;
  */
 public class McpToolHandler {
 
-    private static final Logger log = Logger.getLogger(McpToolHandler.class.getName());
-
     private final Client client;
     private final ClientThread clientThread;
-    private final ConfigManager configManager;
     private final WorldReader world;
     private final StateBuffer stateBuffer;
     private final ActionLog actionLog;
     private final DrawManager drawManager;
 
-    public McpToolHandler(Client client, ClientThread clientThread, ConfigManager configManager,
+    public McpToolHandler(Client client, ClientThread clientThread,
                           WorldReader world, StateBuffer stateBuffer, ActionLog actionLog,
                           DrawManager drawManager) {
         this.client = client;
         this.clientThread = clientThread;
-        this.configManager = configManager;
         this.world = world;
         this.stateBuffer = stateBuffer;
         this.actionLog = actionLog;
@@ -676,7 +670,7 @@ public class McpToolHandler {
         JsonArray prayer = new JsonArray();
         prayer.add(p.prayerPoints); prayer.add(p.maxPrayerPoints);
         o.add("prayer", prayer);
-        o.addProperty("runEnergy", p.runEnergy / 100);
+        o.addProperty("runEnergy", p.runEnergy);
         o.addProperty("specialAttack", p.specialAttackEnergy);
         return o;
     }

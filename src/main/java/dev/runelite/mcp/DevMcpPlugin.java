@@ -54,6 +54,8 @@ public class DevMcpPlugin extends Plugin {
         world = new RuneLiteWorldReader(client);
         stateBuffer = new StateBuffer(client, world, config.bufferSize());
         actionLog = new ActionLog(client, config.actionLogSize());
+        // world also subscribes to HitsplatApplied + GameTick for its per-actor hitsplat buffer
+        eventBus.register(world);
         eventBus.register(stateBuffer);
         eventBus.register(actionLog);
 
@@ -74,7 +76,10 @@ public class DevMcpPlugin extends Plugin {
             eventBus.unregister(stateBuffer);
             stateBuffer = null;
         }
-        world = null;
+        if (world != null) {
+            eventBus.unregister(world);
+            world = null;
+        }
         log.info("RuneLite Dev MCP stopped");
     }
 
@@ -107,7 +112,7 @@ public class DevMcpPlugin extends Plugin {
 
     private void startServer(int port) {
         try {
-            httpServer = new McpHttpServer(port, client, clientThread, configManager,
+            httpServer = new McpHttpServer(port, client, clientThread,
                 world, stateBuffer, actionLog, drawManager);
             httpServer.start();
         } catch (Exception e) {
