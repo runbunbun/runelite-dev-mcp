@@ -6,27 +6,112 @@ Read-only by design — only game-state observation is exposed. No clicking, no 
 
 ## Demo
 
-Once connected, you can hold a normal conversation with Claude about what's happening in your client:
+Tools are invoked over JSON-RPC 2.0 at `POST /mcp` using the standard MCP `tools/call` method. Each call returns a result envelope wrapping the tool's JSON output as a `text` content block. Responses below show the tool output (the value of `result.content[0].text`, parsed) — the wrapping envelope is omitted for brevity.
 
-> **You:** What's the strongest amulet in my bank?
->
-> *Claude calls `bank` with `n=amulet`, reads the matching items + stats:*
->
-> **Claude:** You have an Amulet of fury (+10 strength, +15 attack bonuses) and an Amulet of glory (+8 strength). The fury is the strongest.
+### Filter the bank for amulets
 
-> **You:** What NPCs are around me right now?
->
-> *Claude calls `npc` with default radius:*
->
-> **Claude:** Five within ~10 tiles — two Bankers, a Banker tutor, a Doomsayer, and a Captain Lawgof.
+Request:
 
-> **You:** How did I move in the last 20 ticks?
->
-> *Claude calls `buffer` with `t=-20`, reads sparse per-tick deltas:*
->
-> **Claude:** You stood still for the first 8 ticks, then walked 6 tiles north over the next 12 ticks. Twelve of the ticks had no other changes and were omitted.
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "bank",
+    "arguments": {"n": "amulet"}
+  }
+}
+```
 
-The same data is also available as raw JSON over `POST /mcp` for non-Claude clients.
+Response (tool output):
+
+```json
+{
+  "_meta": {"gameTick": 184213},
+  "open": true,
+  "total": 312,
+  "filter": "amulet",
+  "matched": 2,
+  "items": [
+    {"slot": 42, "id": 6585, "name": "Amulet of fury",  "quantity": 1, "actions": ["Withdraw-1", "Withdraw-5", "Withdraw-10"]},
+    {"slot": 43, "id": 1712, "name": "Amulet of glory", "quantity": 1, "actions": ["Withdraw-1", "Withdraw-5", "Withdraw-10"]}
+  ]
+}
+```
+
+Note: `bank` returns item identity only (`id`, `name`, `quantity`, `actions`). It does **not** return equipment stats — a client that wants to rank amulets by strength bonus has to map the item IDs against its own data source.
+
+### NPCs around the player
+
+Request:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "npc",
+    "arguments": {}
+  }
+}
+```
+
+Response (nearest 15, sorted by Chebyshev/Manhattan distance from the player):
+
+```json
+{
+  "_meta": {"gameTick": 184215},
+  "total": 5,
+  "shown": 5,
+  "items": [
+    {"index": 12, "id": 494,  "name": "Banker",         "pos": [3094, 3492, 0], "hp": [-1, -1], "animation": -1, "actions": ["Bank",    "Examine"], "dist": 2},
+    {"index": 18, "id": 495,  "name": "Banker",         "pos": [3093, 3492, 0], "hp": [-1, -1], "animation": -1, "actions": ["Bank",    "Examine"], "dist": 3},
+    {"index": 23, "id": 6362, "name": "Banker tutor",   "pos": [3091, 3493, 0], "hp": [-1, -1], "animation": -1, "actions": ["Talk-to", "Examine"], "dist": 4},
+    {"index": 31, "id": 3375, "name": "Doomsayer",      "pos": [3088, 3490, 0], "hp": [-1, -1], "animation": -1, "actions": ["Talk-to", "Examine"], "dist": 8},
+    {"index": 47, "id": 3105, "name": "Captain Lawgof", "pos": [3084, 3496, 0], "hp": [-1, -1], "animation": -1, "actions": ["Talk-to", "Examine"], "dist": 12}
+  ]
+}
+```
+
+### Player movement over the last 20 ticks (delta buffer)
+
+Request:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "buffer",
+    "arguments": {"t": -20, "types": "player"}
+  }
+}
+```
+
+Response (sparse — ticks with no changes are dropped and counted in `ticksOmitted`):
+
+```json
+{
+  "_meta": {"gameTick": 184230},
+  "bufferCapacity": 200,
+  "bufferFilled": 184,
+  "type": "delta",
+  "ticksOmitted": 14,
+  "ticks": [
+    {"tick": 184219, "timestampMs": 1716579234120, "deltas": {"player": {"pos": [3094, 3493, 0], "runEnergy": 9821}}},
+    {"tick": 184221, "timestampMs": 1716579235320, "deltas": {"player": {"pos": [3094, 3494, 0], "runEnergy": 9783}}},
+    {"tick": 184223, "timestampMs": 1716579236520, "deltas": {"player": {"pos": [3094, 3495, 0], "runEnergy": 9745}}},
+    {"tick": 184225, "timestampMs": 1716579237720, "deltas": {"player": {"pos": [3094, 3496, 0], "runEnergy": 9707}}},
+    {"tick": 184227, "timestampMs": 1716579238920, "deltas": {"player": {"pos": [3094, 3497, 0], "runEnergy": 9669}}},
+    {"tick": 184229, "timestampMs": 1716579240120, "deltas": {"player": {"pos": [3094, 3498, 0], "runEnergy": 9631}}}
+  ]
+}
+```
+
+The same JSON shapes are returned to any MCP-aware client (Claude, custom scripts, other LLMs) — there is nothing Claude-specific in the protocol.
 
 ## Endpoints
 
