@@ -4,6 +4,30 @@ A read-only [Model Context Protocol](https://modelcontextprotocol.io) server for
 
 Read-only by design — only game-state observation is exposed. No clicking, no input, no automation.
 
+## Demo
+
+Once connected, you can hold a normal conversation with Claude about what's happening in your client:
+
+> **You:** What's the strongest amulet in my bank?
+>
+> *Claude calls `bank` with `n=amulet`, reads the matching items + stats:*
+>
+> **Claude:** You have an Amulet of fury (+10 strength, +15 attack bonuses) and an Amulet of glory (+8 strength). The fury is the strongest.
+
+> **You:** What NPCs are around me right now?
+>
+> *Claude calls `npc` with default radius:*
+>
+> **Claude:** Five within ~10 tiles — two Bankers, a Banker tutor, a Doomsayer, and a Captain Lawgof.
+
+> **You:** How did I move in the last 20 ticks?
+>
+> *Claude calls `buffer` with `t=-20`, reads sparse per-tick deltas:*
+>
+> **Claude:** You stood still for the first 8 ticks, then walked 6 tiles north over the next 12 ticks. Twelve of the ticks had no other changes and were omitted.
+
+The same data is also available as raw JSON over `POST /mcp` for non-Claude clients.
+
 ## Endpoints
 
 - `POST   /mcp` — JSON-RPC 2.0 MCP requests (tool discovery + invocation)

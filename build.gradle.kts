@@ -15,15 +15,26 @@ java {
     targetCompatibility = JavaVersion.VERSION_11
 }
 
+// RuneLite is pinned to a known-good release rather than `latest.release` so CI and
+// contributor builds are reproducible. Bump deliberately when upstream cuts a release
+// with API changes you've validated against.
+val runeliteVersion = "1.12.26.3"
+
 dependencies {
-    compileOnly("net.runelite:runelite-api:latest.release")
-    compileOnly("net.runelite:client:latest.release")
+    compileOnly("net.runelite:runelite-api:$runeliteVersion")
+    compileOnly("net.runelite:client:$runeliteVersion")
     compileOnly("org.pf4j:pf4j:3.6.0")
     compileOnly("com.google.inject:guice:4.1.0")
     compileOnly("javax.annotation:javax.annotation-api:1.3.2")
     compileOnly("org.projectlombok:lombok:1.18.30")
     annotationProcessor("org.projectlombok:lombok:1.18.30")
     annotationProcessor("org.pf4j:pf4j:3.6.0")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.withType<JavaCompile> {
