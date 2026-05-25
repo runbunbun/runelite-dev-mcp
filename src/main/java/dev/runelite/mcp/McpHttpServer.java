@@ -1,5 +1,10 @@
 package dev.runelite.mcp;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import dev.runelite.mcp.api.WorldReader;
@@ -89,7 +94,9 @@ public class McpHttpServer {
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {
-        sendJson(ex, 200, "{\"status\":\"ok\"}");
+        JsonObject o = new JsonObject();
+        o.addProperty("status", "ok");
+        sendJson(ex, 200, o.toString());
     }
 
     private void handleMcp(HttpExchange ex) throws IOException {
@@ -164,7 +171,7 @@ public class McpHttpServer {
                 result = handleInitialize(id);
                 break;
             case "ping":
-                result = jsonRpcResult(id, "{}");
+                result = jsonRpcResult(id, new JsonObject());
                 break;
             case "tools/list":
                 result = handleToolsList(id);
@@ -223,68 +230,114 @@ public class McpHttpServer {
     // ========== JSON-RPC Method Handlers ==========
 
     private String handleInitialize(String id) {
-        return jsonRpcResult(id,
-            "{\"protocolVersion\":\"2025-03-26\"," +
-            "\"serverInfo\":{\"name\":\"osrs-game-server\",\"version\":\"2.0.0\"}," +
-            "\"capabilities\":{\"tools\":{\"listChanged\":true}," +
-            "\"resources\":{\"subscribe\":false,\"listChanged\":false}}}");
+        JsonObject result = new JsonObject();
+        result.addProperty("protocolVersion", "2025-03-26");
+        JsonObject server = new JsonObject();
+        server.addProperty("name", "osrs-game-server");
+        server.addProperty("version", "2.0.0");
+        result.add("serverInfo", server);
+        JsonObject caps = new JsonObject();
+        JsonObject tools = new JsonObject();
+        tools.addProperty("listChanged", true);
+        caps.add("tools", tools);
+        JsonObject resources = new JsonObject();
+        resources.addProperty("subscribe", false);
+        resources.addProperty("listChanged", false);
+        caps.add("resources", resources);
+        result.add("capabilities", caps);
+        return jsonRpcResult(id, result);
     }
 
     private String handleToolsList(String id) {
-        String tools = toolHandler.getToolSchemas();
-        return jsonRpcResult(id, "{\"tools\":" + tools + "}");
+        JsonObject result = new JsonObject();
+        result.add("tools", toolHandler.getToolSchemas());
+        return jsonRpcResult(id, result);
     }
 
     private String handleToolsCall(String id, String body) {
-        // Extract params.name and params.arguments from the body
         String paramsStr = extractObject(body, "params");
-        if (paramsStr == null) {
-            return jsonRpcError(id, -32603, "Missing params");
-        }
+        if (paramsStr == null) return jsonRpcError(id, -32603, "Missing params");
 
         String toolName = parseStringField(paramsStr, "name");
         String argsStr = extractObject(paramsStr, "arguments");
+        if (toolName == null) return jsonRpcError(id, -32603, "Missing tool name");
 
-        if (toolName == null) {
-            return jsonRpcError(id, -32603, "Missing tool name");
-        }
-
+        JsonObject content = new JsonObject();
         try {
             String toolResult = toolHandler.handleToolCall(toolName, argsStr != null ? argsStr : "{}");
-            // Screenshot returns raw base64 PNG (or "Error: ..."); wrap as MCP image content.
+            JsonObject item = new JsonObject();
             if ("screenshot".equals(toolName) && !toolResult.startsWith("Error")) {
-                return jsonRpcResult(id,
-                    "{\"content\":[{\"type\":\"image\",\"data\":\"" + toolResult +
-                    "\",\"mimeType\":\"image/png\"}],\"isError\":false}");
+                // Screenshot returns raw base64 PNG; wrap as MCP image content for inline render.
+                item.addProperty("type", "image");
+                item.addProperty("data", toolResult);
+                item.addProperty("mimeType", "image/png");
+            } else {
+                item.addProperty("type", "text");
+                item.addProperty("text", toolResult);
             }
-            // MCP tool results are wrapped in content array
-            String escaped = escapeJsonString(toolResult);
-            return jsonRpcResult(id,
-                "{\"content\":[{\"type\":\"text\",\"text\":\"" + escaped + "\"}],\"isError\":false}");
+            JsonArray arr = new JsonArray();
+            arr.add(item);
+            content.add("content", arr);
+            content.addProperty("isError", false);
         } catch (Exception e) {
-            String escaped = escapeJsonString(e.getMessage() != null ? e.getMessage() : "Unknown error");
-            return jsonRpcResult(id,
-                "{\"content\":[{\"type\":\"text\",\"text\":\"" + escaped + "\"}],\"isError\":true}");
+            JsonObject item = new JsonObject();
+            item.addProperty("type", "text");
+            item.addProperty("text", e.getMessage() != null ? e.getMessage() : "Unknown error");
+            JsonArray arr = new JsonArray();
+            arr.add(item);
+            content.add("content", arr);
+            content.addProperty("isError", true);
         }
+        return jsonRpcResult(id, content);
     }
 
     private String handleResourcesList(String id) {
-        return jsonRpcResult(id, "{\"resources\":[]}");
+        JsonObject result = new JsonObject();
+        result.add("resources", new JsonArray());
+        return jsonRpcResult(id, result);
     }
 
     private String handleResourcesRead(String id, String body) {
-        return jsonRpcResult(id, "{\"contents\":[]}");
+        JsonObject result = new JsonObject();
+        result.add("contents", new JsonArray());
+        return jsonRpcResult(id, result);
     }
 
     // ========== JSON Utilities ==========
 
-    private static String jsonRpcResult(String id, String result) {
-        return "{\"jsonrpc\":\"2.0\",\"id\":" + (id != null ? id : "null") + ",\"result\":" + result + "}";
+    /** Build a JSON-RPC 2.0 success envelope around {@code result}. */
+    private static String jsonRpcResult(String id, JsonElement result) {
+        JsonObject env = new JsonObject();
+        env.addProperty("jsonrpc", "2.0");
+        env.add("id", parseId(id));
+        env.add("result", result);
+        return env.toString();
     }
 
+    /** Build a JSON-RPC 2.0 error envelope. */
     private static String jsonRpcError(String id, int code, String message) {
-        return "{\"jsonrpc\":\"2.0\",\"id\":" + (id != null ? id : "null") +
-            ",\"error\":{\"code\":" + code + ",\"message\":\"" + escapeJsonString(message) + "\"}}";
+        JsonObject env = new JsonObject();
+        env.addProperty("jsonrpc", "2.0");
+        env.add("id", parseId(id));
+        JsonObject err = new JsonObject();
+        err.addProperty("code", code);
+        err.addProperty("message", message != null ? message : "");
+        env.add("error", err);
+        return env.toString();
+    }
+
+    /**
+     * JSON-RPC ids may be numbers or strings. {@link #parseStringField} returns whatever
+     * raw substring it found, so we try numeric first and fall back to string. Missing id
+     * becomes JSON {@code null} per the spec.
+     */
+    private static JsonElement parseId(String id) {
+        if (id == null) return JsonNull.INSTANCE;
+        try { return new JsonPrimitive(Long.parseLong(id)); }
+        catch (NumberFormatException ignored) {}
+        try { return new JsonPrimitive(Double.parseDouble(id)); }
+        catch (NumberFormatException ignored) {}
+        return new JsonPrimitive(id);
     }
 
     private static void sendJson(HttpExchange ex, int status, String json) throws IOException {
@@ -370,9 +423,4 @@ public class McpHttpServer {
         return null;
     }
 
-    static String escapeJsonString(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
-    }
 }

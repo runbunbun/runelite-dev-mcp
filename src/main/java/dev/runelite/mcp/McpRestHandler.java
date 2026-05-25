@@ -59,12 +59,18 @@ public class McpRestHandler {
             } else if (path.equals("/api/debug/bank-widgets") && "GET".equals(method)) {
                 handleDebugBankWidgets(ex);
             } else {
-                sendJson(ex, 404, "{\"error\":\"Not found\"}");
+                sendJson(ex, 404, errorJson("Not found"));
             }
         } catch (Exception e) {
             log.warning("REST handler error: " + e.getMessage());
-            sendJson(ex, 500, "{\"error\":\"" + McpHttpServer.escapeJsonString(e.getMessage()) + "\"}");
+            sendJson(ex, 500, errorJson(e.getMessage()));
         }
+    }
+
+    private static String errorJson(String message) {
+        JsonObject o = new JsonObject();
+        o.addProperty("error", message != null ? message : "");
+        return o.toString();
     }
 
     private void handleGetStatus(HttpExchange ex) throws IOException {

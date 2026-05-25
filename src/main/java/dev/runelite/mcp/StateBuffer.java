@@ -5,9 +5,14 @@ import dev.runelite.mcp.api.snapshot.GroundItemSnapshot;
 import dev.runelite.mcp.api.snapshot.NpcSnapshot;
 import dev.runelite.mcp.api.snapshot.ObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.PlayerSnapshot;
+import net.runelite.api.Actor;
 import net.runelite.api.Client;
+import net.runelite.api.Hitsplat;
+import net.runelite.api.NPC;
+import net.runelite.api.Player;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
 import net.runelite.client.eventbus.Subscribe;
 
 import java.util.ArrayList;
@@ -35,6 +40,12 @@ public class StateBuffer {
         public final List<PlayerSnapshot> otherPlayers;
         /** Per-skill total XP, indexed by {@link Skill#ordinal()}. Length matches {@code Skill.values().length}. */
         public final int[] skillXp;
+        /** Per-skill real (XP-derived) level. Same indexing as {@link #skillXp}. */
+        public final int[] skillRealLevel;
+        /** Per-skill boosted (current effective) level. Same indexing as {@link #skillXp}. */
+        public final int[] skillBoostedLevel;
+        /** Hitsplats applied during this tick (any actor — local player, other players, NPCs). */
+        public final List<TickHit> hits;
 
         TickSnapshot(int tick, long timestampMs,
                      PlayerSnapshot player,
@@ -42,7 +53,8 @@ public class StateBuffer {
                      List<ObjectSnapshot> objects,
                      List<GroundItemSnapshot> groundItems,
                      List<PlayerSnapshot> otherPlayers,
-                     int[] skillXp) {
+                     int[] skillXp, int[] skillRealLevel, int[] skillBoostedLevel,
+                     List<TickHit> hits) {
             this.tick = tick;
             this.timestampMs = timestampMs;
             this.player = player;
@@ -51,6 +63,30 @@ public class StateBuffer {
             this.groundItems = groundItems != null ? groundItems : Collections.emptyList();
             this.otherPlayers = otherPlayers != null ? otherPlayers : Collections.emptyList();
             this.skillXp = skillXp != null ? skillXp : new int[0];
+            this.skillRealLevel = skillRealLevel != null ? skillRealLevel : new int[0];
+            this.skillBoostedLevel = skillBoostedLevel != null ? skillBoostedLevel : new int[0];
+            this.hits = hits != null ? hits : Collections.emptyList();
+        }
+    }
+
+    /**
+     * One hitsplat captured from a {@code HitsplatApplied} event. {@code kind} is
+     * "npc" / "player" / "other"; {@code id} is the NPC composition id when known,
+     * otherwise -1. {@code isLocal} is true when the local player was the recipient.
+     */
+    public static final class TickHit {
+        public final String actorName;
+        public final String kind;
+        public final int id;
+        public final boolean isLocal;
+        public final int amount;
+        public final int type;
+        public final boolean mine;
+
+        public TickHit(String actorName, String kind, int id, boolean isLocal,
+                       int amount, int type, boolean mine) {
+            this.actorName = actorName; this.kind = kind; this.id = id;
+            this.isLocal = isLocal; this.amount = amount; this.type = type; this.mine = mine;
         }
     }
 
@@ -61,6 +97,12 @@ public class StateBuffer {
     private int head;   // next slot to write
     private int count;  // valid entries (capped at buffer.length)
 
+    // Hitsplats arrive on the client thread between GameTicks; we accumulate them
+    // here and drain into the next tick snapshot. Guarded by hitLock since both
+    // the @Subscribe HitsplatApplied path and the GameTick path can touch it.
+    private final List<TickHit> pendingHits = new ArrayList<>();
+    private final Object hitLock = new Object();
+
     public StateBuffer(Client client, WorldReader world, int size) {
         this.client = client;
         this.world = world;
@@ -68,10 +110,46 @@ public class StateBuffer {
     }
 
     @Subscribe
+    public void onHitsplatApplied(HitsplatApplied e) {
+        Actor actor = e.getActor();
+        Hitsplat h = e.getHitsplat();
+        if (actor == null || h == null) return;
+        String kind;
+        int id = -1;
+        if (actor instanceof NPC) {
+            kind = "npc";
+            id = ((NPC) actor).getId();
+        } else if (actor instanceof Player) {
+            kind = "player";
+        } else {
+            kind = "other";
+        }
+        boolean isLocal = (actor == client.getLocalPlayer());
+        TickHit hit = new TickHit(actor.getName(), kind, id, isLocal,
+            h.getAmount(), h.getHitsplatType(), h.isMine());
+        synchronized (hitLock) {
+            pendingHits.add(hit);
+        }
+    }
+
+    @Subscribe
     public void onGameTick(GameTick e) {
         Skill[] skills = Skill.values();
         int[] xp = new int[skills.length];
-        for (int i = 0; i < skills.length; i++) xp[i] = world.getSkillXp(i);
+        int[] real = new int[skills.length];
+        int[] boosted = new int[skills.length];
+        for (int i = 0; i < skills.length; i++) {
+            xp[i] = world.getSkillXp(i);
+            real[i] = world.getSkillLevel(i);
+            boosted[i] = world.getBoostedLevel(i);
+        }
+        List<TickHit> tickHits;
+        synchronized (hitLock) {
+            tickHits = pendingHits.isEmpty()
+                ? Collections.emptyList()
+                : new ArrayList<>(pendingHits);
+            pendingHits.clear();
+        }
         TickSnapshot snap = new TickSnapshot(
             client.getTickCount(),
             System.currentTimeMillis(),
@@ -80,7 +158,8 @@ public class StateBuffer {
             world.getObjects(),
             world.getGroundItems(),
             world.getOtherPlayers(),
-            xp
+            xp, real, boosted,
+            tickHits
         );
         synchronized (lock) {
             buffer[head] = snap;

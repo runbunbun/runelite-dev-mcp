@@ -60,12 +60,13 @@ Point-in-time state queries:
 | `chat` | `lines` (default 10) | Recent chat messages |
 | `screenshot` | — | Game viewport PNG. Over MCP `tools/call` it's wrapped as `{"type":"image","data":"<base64>","mimeType":"image/png"}` so MCP-aware clients render it inline. |
 | `loginstate` | — | Login state (`LOGGED_IN`, `LOGGING_IN`, etc.) |
+| `prayer` | — | Active prayers (list) + prayer point pool (`current` / `max`) |
 
 Historical / event-stream queries (server-side ring buffers, updated every tick):
 
 | Tool | Args | Purpose |
 |------|------|---------|
-| `buffer` | `t` (default `-5`), `types`, `names`, `ids`, `tile`, `area` | Per-tick state of player / NPCs / objects / ground items / other players / skills. `t > 0` returns a full absolute snapshot at that tick; `t < 0` returns the last `|t|` ticks as sparse deltas with `added` / `removed` / `changed` per entity type (and per-skill XP `gained` for the `skills` type). Ticks with no matching changes are omitted and counted in `ticksOmitted`. Capacity 200 ticks (~2 min). |
+| `buffer` | `t` (default `-5`), `types`, `names`, `ids`, `tile`, `area` | Per-tick state of player / NPCs / objects / ground items / other players / skills / hits. `t > 0` returns a full absolute snapshot at that tick; `t < 0` returns the last `|t|` ticks as sparse deltas with `added` / `removed` / `changed` per entity type. The `skills` type emits a per-skill object with only the changed fields (`gained` XP, `real` level-ups, `boosted` for temporary boosts / damage / regen). The `hits` type emits the list of `HitsplatApplied` events that landed on that tick. Ticks with no matching changes are omitted and counted in `ticksOmitted`. Capacity 200 ticks (~2 min). |
 | `actions` | `t` (default 50), `option`, `target`, `opcodes`, `ids`, `since` | Recent `MenuOptionClicked` events: user clicks plus plugin / macro actions invoked through the public menu API (`Client.invokeMenuAction`, `Client.menuAction`). Does **not** catch actions that bypass the menu and send raw packets. Newest-last. Capacity 500 actions. |
 
 All responses include `_meta.gameTick` (OSRS runs at 600ms/tick).

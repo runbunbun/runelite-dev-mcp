@@ -32,7 +32,7 @@ import java.util.Set;
 public class BufferQueryHandler {
 
     private static final Set<String> ALL_TYPES = new HashSet<>(Arrays.asList(
-        "npc", "obj", "ground", "player", "otherplayer", "skills"));
+        "npc", "obj", "ground", "player", "otherplayer", "skills", "hits"));
 
     private final StateBuffer buffer;
     private final int currentTick;
@@ -116,7 +116,10 @@ public class BufferQueryHandler {
             state.add("otherPlayers", arr);
         }
         if (filter.includesType("skills") && s.skillXp != null && s.skillXp.length > 0) {
-            state.add("skills", skillsJson(s.skillXp));
+            state.add("skills", skillsJson(s.skillXp, s.skillRealLevel, s.skillBoostedLevel));
+        }
+        if (filter.includesType("hits") && s.hits != null && !s.hits.isEmpty()) {
+            state.add("hits", hitsJson(s.hits));
         }
         root.add("state", state);
     }
@@ -181,8 +184,11 @@ public class BufferQueryHandler {
             if (d.size() > 0) out.add("otherPlayers", d);
         }
         if (filter.includesType("skills") && prev != null) {
-            JsonObject d = skillsDeltas(prev.skillXp, curr.skillXp);
+            JsonObject d = skillsDeltas(prev, curr);
             if (d.size() > 0) out.add("skills", d);
+        }
+        if (filter.includesType("hits") && curr.hits != null && !curr.hits.isEmpty()) {
+            out.add("hits", hitsJson(curr.hits));
         }
         return out;
     }
@@ -190,31 +196,79 @@ public class BufferQueryHandler {
     // ========== Skills ==========
 
     /**
-     * XP gained per skill since {@code prev}, keyed by skill display name (e.g. "Woodcutting").
-     * Only skills with a positive gain are included; OVERALL is excluded since it's a derived
-     * sum and would double-count. Returns an empty object when nothing was gained.
+     * Per-skill change object keyed by skill display name (e.g. "Woodcutting"). Each
+     * skill's value carries only the fields that actually changed since {@code prev}:
+     * {@code gained} for XP delta, {@code real} for level-ups, {@code boosted} for
+     * temporary boosts / damage / regen. OVERALL is excluded (derived sum).
      */
-    private static JsonObject skillsDeltas(int[] prev, int[] curr) {
+    private static JsonObject skillsDeltas(TickSnapshot prev, TickSnapshot curr) {
         JsonObject out = new JsonObject();
         if (prev == null || curr == null) return out;
         Skill[] skills = Skill.values();
-        int len = Math.min(Math.min(prev.length, curr.length), skills.length);
+        int len = Math.min(skills.length,
+            Math.min(Math.min(curr.skillXp.length, curr.skillRealLevel.length), curr.skillBoostedLevel.length));
+        len = Math.min(len,
+            Math.min(Math.min(prev.skillXp.length, prev.skillRealLevel.length), prev.skillBoostedLevel.length));
         for (int i = 0; i < len; i++) {
             if (skills[i] == Skill.OVERALL) continue;
-            int gained = curr[i] - prev[i];
-            if (gained > 0) out.addProperty(skills[i].getName(), gained);
+            JsonObject skill = new JsonObject();
+            int gained = curr.skillXp[i] - prev.skillXp[i];
+            if (gained > 0) skill.addProperty("gained", gained);
+            if (curr.skillRealLevel[i] != prev.skillRealLevel[i]) {
+                JsonArray a = new JsonArray();
+                a.add(prev.skillRealLevel[i]); a.add(curr.skillRealLevel[i]);
+                skill.add("real", a);
+            }
+            if (curr.skillBoostedLevel[i] != prev.skillBoostedLevel[i]) {
+                JsonArray a = new JsonArray();
+                a.add(prev.skillBoostedLevel[i]); a.add(curr.skillBoostedLevel[i]);
+                skill.add("boosted", a);
+            }
+            if (skill.size() > 0) out.add(skills[i].getName(), skill);
         }
         return out;
     }
 
-    /** Absolute XP per skill, keyed by display name. OVERALL excluded (derived). */
-    private static JsonObject skillsJson(int[] xp) {
+    // ========== Hitsplats ==========
+
+    /**
+     * One JSON object per hitsplat that landed on this tick. Hits are inherently
+     * per-tick events, so the delta and absolute renderings are identical — just
+     * the list of hits that happened during this tick.
+     */
+    private static JsonArray hitsJson(java.util.List<StateBuffer.TickHit> hits) {
+        JsonArray arr = new JsonArray();
+        for (StateBuffer.TickHit h : hits) {
+            JsonObject o = new JsonObject();
+            if (h.actorName != null) o.addProperty("actor", h.actorName);
+            o.addProperty("kind", h.kind);
+            if (h.id >= 0) o.addProperty("id", h.id);
+            if (h.isLocal) o.addProperty("local", true);
+            o.addProperty("amount", h.amount);
+            o.addProperty("type", h.type);
+            if (h.mine) o.addProperty("mine", true);
+            arr.add(o);
+        }
+        return arr;
+    }
+
+    /**
+     * Absolute per-skill snapshot. Each skill carries {@code xp} (total cumulative),
+     * {@code real} (XP-derived level), and {@code boosted} (current effective level —
+     * differs from real when boosted by potions or drained by damage/prayer drain).
+     * OVERALL excluded (derived).
+     */
+    private static JsonObject skillsJson(int[] xp, int[] real, int[] boosted) {
         JsonObject out = new JsonObject();
         Skill[] skills = Skill.values();
-        int len = Math.min(xp.length, skills.length);
+        int len = Math.min(skills.length, xp.length);
         for (int i = 0; i < len; i++) {
             if (skills[i] == Skill.OVERALL) continue;
-            out.addProperty(skills[i].getName(), xp[i]);
+            JsonObject skill = new JsonObject();
+            skill.addProperty("xp", xp[i]);
+            if (i < real.length) skill.addProperty("real", real[i]);
+            if (i < boosted.length) skill.addProperty("boosted", boosted[i]);
+            out.add(skills[i].getName(), skill);
         }
         return out;
     }
