@@ -211,7 +211,6 @@ public class BufferQueryHandler {
             Math.min(Math.min(prev.skillXp.length, prev.skillRealLevel.length), prev.skillBoostedLevel.length));
         for (int i = 0; i < len; i++) {
             if (skills[i] == Skill.OVERALL) continue;
-            if ("Sailing".equals(skills[i].getName())) continue; // future-content placeholder
             JsonObject skill = new JsonObject();
             int gained = curr.skillXp[i] - prev.skillXp[i];
             if (gained > 0) skill.addProperty("gained", gained);
@@ -265,7 +264,6 @@ public class BufferQueryHandler {
         int len = Math.min(skills.length, xp.length);
         for (int i = 0; i < len; i++) {
             if (skills[i] == Skill.OVERALL) continue;
-            if ("Sailing".equals(skills[i].getName())) continue; // future-content placeholder
             JsonObject skill = new JsonObject();
             skill.addProperty("xp", xp[i]);
             if (i < real.length) skill.addProperty("real", real[i]);
