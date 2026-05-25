@@ -25,12 +25,22 @@ jobs:
       - name: Build + test
         run: ./gradlew --no-daemon build
 
-      - name: Attach JAR to GitHub release
+      - name: Compute SHA-256
+        id: hash
+        run: |
+          jar=$(ls build/libs/*.jar | head -1)
+          (cd "$(dirname "$jar")" && sha256sum "$(basename "$jar")" > "$(basename "$jar").sha256")
+          sha=$(awk '{print $1}' "$jar.sha256")
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Attach JAR + checksum to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.hash.outputs.sha }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
+          printf 'Built from %s. See git log for details.\n\n**SHA-256:** `%s`\n\nVerify with `shasum -a 256 -c runelite-dev-mcp-*.jar.sha256` after downloading both files.\n' "$tag" "$SHA" > /tmp/notes.md
           gh release create "$tag" \
             --title "$tag" \
-            --notes "Built from $tag. See CHANGELOG (if present) or git log for details." \
-            build/libs/*.jar
+            --notes-file /tmp/notes.md \
+            build/libs/*.jar build/libs/*.sha256

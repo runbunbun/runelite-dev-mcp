@@ -71,7 +71,15 @@ Historical / event-stream queries (server-side ring buffers, updated every tick)
 
 All responses include `_meta.gameTick` (OSRS runs at 600ms/tick).
 
-## Build
+## Download
+
+Pre-built JARs are attached to each [GitHub Release](https://github.com/runbunbun/runelite-dev-mcp/releases/latest) alongside a `.sha256` checksum file. Verify before sideloading:
+
+```sh
+shasum -a 256 -c runelite-dev-mcp-*.jar.sha256
+```
+
+## Build (from source)
 
 ```sh
 ./gradlew jar
