@@ -93,7 +93,7 @@ public class McpToolHandler {
             toolSchema("buffer",
                 "[g] Delta-encoded state buffer. t>0 = absolute tick (full snapshot); t<0 = last |t| ticks (sparse deltas with added/removed/changed). Default t=-5.",
                 prop("t", "number", "Tick: positive = absolute tick #; negative = last N ticks; default -5") + "," +
-                prop("types", "string", "Entity types CSV: npc,obj,ground,player,otherplayer (default all)") + "," +
+                prop("types", "string", "Entity types CSV: npc,obj,ground,player,otherplayer,skills (default all)") + "," +
                 prop("names", "string", "Name filter CSV (case-insensitive)") + "," +
                 prop("ids", "string", "ID filter CSV") + "," +
                 prop("tile", "string", "Tile filter: \"x,y,plane\"") + "," +

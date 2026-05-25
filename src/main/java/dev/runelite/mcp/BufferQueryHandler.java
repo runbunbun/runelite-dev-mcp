@@ -7,6 +7,7 @@ import dev.runelite.mcp.api.snapshot.GroundItemSnapshot;
 import dev.runelite.mcp.api.snapshot.NpcSnapshot;
 import dev.runelite.mcp.api.snapshot.ObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.PlayerSnapshot;
+import net.runelite.api.Skill;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -31,7 +32,7 @@ import java.util.Set;
 public class BufferQueryHandler {
 
     private static final Set<String> ALL_TYPES = new HashSet<>(Arrays.asList(
-        "npc", "obj", "ground", "player", "otherplayer"));
+        "npc", "obj", "ground", "player", "otherplayer", "skills"));
 
     private final StateBuffer buffer;
     private final int currentTick;
@@ -114,6 +115,9 @@ public class BufferQueryHandler {
             for (PlayerSnapshot p : s.otherPlayers) if (filter.matches(p)) arr.add(playerJson(p));
             state.add("otherPlayers", arr);
         }
+        if (filter.includesType("skills") && s.skillXp != null && s.skillXp.length > 0) {
+            state.add("skills", skillsJson(s.skillXp));
+        }
         root.add("state", state);
     }
 
@@ -175,6 +179,42 @@ public class BufferQueryHandler {
         if (filter.includesType("otherplayer")) {
             JsonObject d = otherPlayerDeltas(prev != null ? prev.otherPlayers : null, curr.otherPlayers, filter);
             if (d.size() > 0) out.add("otherPlayers", d);
+        }
+        if (filter.includesType("skills") && prev != null) {
+            JsonObject d = skillsDeltas(prev.skillXp, curr.skillXp);
+            if (d.size() > 0) out.add("skills", d);
+        }
+        return out;
+    }
+
+    // ========== Skills ==========
+
+    /**
+     * XP gained per skill since {@code prev}, keyed by skill display name (e.g. "Woodcutting").
+     * Only skills with a positive gain are included; OVERALL is excluded since it's a derived
+     * sum and would double-count. Returns an empty object when nothing was gained.
+     */
+    private static JsonObject skillsDeltas(int[] prev, int[] curr) {
+        JsonObject out = new JsonObject();
+        if (prev == null || curr == null) return out;
+        Skill[] skills = Skill.values();
+        int len = Math.min(Math.min(prev.length, curr.length), skills.length);
+        for (int i = 0; i < len; i++) {
+            if (skills[i] == Skill.OVERALL) continue;
+            int gained = curr[i] - prev[i];
+            if (gained > 0) out.addProperty(skills[i].getName(), gained);
+        }
+        return out;
+    }
+
+    /** Absolute XP per skill, keyed by display name. OVERALL excluded (derived). */
+    private static JsonObject skillsJson(int[] xp) {
+        JsonObject out = new JsonObject();
+        Skill[] skills = Skill.values();
+        int len = Math.min(xp.length, skills.length);
+        for (int i = 0; i < len; i++) {
+            if (skills[i] == Skill.OVERALL) continue;
+            out.addProperty(skills[i].getName(), xp[i]);
         }
         return out;
     }

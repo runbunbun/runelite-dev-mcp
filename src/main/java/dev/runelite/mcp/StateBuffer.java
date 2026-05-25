@@ -6,6 +6,7 @@ import dev.runelite.mcp.api.snapshot.NpcSnapshot;
 import dev.runelite.mcp.api.snapshot.ObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.PlayerSnapshot;
 import net.runelite.api.Client;
+import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.eventbus.Subscribe;
 
@@ -32,13 +33,16 @@ public class StateBuffer {
         public final List<ObjectSnapshot> objects;
         public final List<GroundItemSnapshot> groundItems;
         public final List<PlayerSnapshot> otherPlayers;
+        /** Per-skill total XP, indexed by {@link Skill#ordinal()}. Length matches {@code Skill.values().length}. */
+        public final int[] skillXp;
 
         TickSnapshot(int tick, long timestampMs,
                      PlayerSnapshot player,
                      List<NpcSnapshot> npcs,
                      List<ObjectSnapshot> objects,
                      List<GroundItemSnapshot> groundItems,
-                     List<PlayerSnapshot> otherPlayers) {
+                     List<PlayerSnapshot> otherPlayers,
+                     int[] skillXp) {
             this.tick = tick;
             this.timestampMs = timestampMs;
             this.player = player;
@@ -46,6 +50,7 @@ public class StateBuffer {
             this.objects = objects != null ? objects : Collections.emptyList();
             this.groundItems = groundItems != null ? groundItems : Collections.emptyList();
             this.otherPlayers = otherPlayers != null ? otherPlayers : Collections.emptyList();
+            this.skillXp = skillXp != null ? skillXp : new int[0];
         }
     }
 
@@ -64,6 +69,9 @@ public class StateBuffer {
 
     @Subscribe
     public void onGameTick(GameTick e) {
+        Skill[] skills = Skill.values();
+        int[] xp = new int[skills.length];
+        for (int i = 0; i < skills.length; i++) xp[i] = world.getSkillXp(i);
         TickSnapshot snap = new TickSnapshot(
             client.getTickCount(),
             System.currentTimeMillis(),
@@ -71,7 +79,8 @@ public class StateBuffer {
             world.getNpcs(),
             world.getObjects(),
             world.getGroundItems(),
-            world.getOtherPlayers()
+            world.getOtherPlayers(),
+            xp
         );
         synchronized (lock) {
             buffer[head] = snap;
