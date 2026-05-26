@@ -292,6 +292,11 @@ public class BufferQueryHandler {
         diffStr(changed, "interactingName", prev.interactingName, curr.interactingName);
         diffBool(changed, "poisoned", prev.poisoned, curr.poisoned);
         diffBool(changed, "venomed", prev.venomed, curr.venomed);
+        diffBool(changed, "antiPoisoned", prev.antiPoisoned, curr.antiPoisoned);
+        diffBool(changed, "antiVenomed", prev.antiVenomed, curr.antiVenomed);
+        diffBool(changed, "staminaBoosted", prev.staminaBoosted, curr.staminaBoosted);
+        diffBool(changed, "antifired", prev.antifired, curr.antifired);
+        diffBool(changed, "superAntifired", prev.superAntifired, curr.superAntifired);
         return changed.size() > 0 ? changed : null;
     }
 

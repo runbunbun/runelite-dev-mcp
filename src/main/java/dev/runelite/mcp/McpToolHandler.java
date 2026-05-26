@@ -659,6 +659,19 @@ public class McpToolHandler {
         o.add("prayer", prayer);
         o.addProperty("runEnergy", p.runEnergy);
         o.addProperty("specialAttack", p.specialAttackEnergy);
+        o.addProperty("runEnabled", p.runEnabled);
+        // Status effects derived from POISON varp + stamina/antifire varbits in
+        // RuneLiteWorldReader. All flags emitted (true and false) so absence is
+        // unambiguously "not captured" rather than "false".
+        JsonObject status = new JsonObject();
+        status.addProperty("poisoned", p.poisoned);
+        status.addProperty("venomed", p.venomed);
+        status.addProperty("antiPoisoned", p.antiPoisoned);
+        status.addProperty("antiVenomed", p.antiVenomed);
+        status.addProperty("staminaBoosted", p.staminaBoosted);
+        status.addProperty("antifired", p.antifired);
+        status.addProperty("superAntifired", p.superAntifired);
+        o.add("status", status);
         return o;
     }
 
