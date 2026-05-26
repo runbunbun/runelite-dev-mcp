@@ -505,6 +505,9 @@ public class McpToolHandler {
         int id = w.getId();
         wj.addProperty("group", id >>> 16);
         wj.addProperty("child", id & 0xFFFF);
+        // Dynamic children share the parent's id; index disambiguates them. -1 for static.
+        int idx = w.getIndex();
+        if (idx >= 0) wj.addProperty("index", idx);
         wj.add("bounds", boundsArray(b));
         if (w.getText() != null && !w.getText().isEmpty()) wj.addProperty("text", w.getText());
         if (w.getName() != null && !w.getName().isEmpty()) wj.addProperty("name", w.getName());
