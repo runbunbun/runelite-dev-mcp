@@ -186,9 +186,9 @@ public class McpRestHandler {
     }
 
     private static void sendJson(HttpExchange ex, int status, String json) throws IOException {
+        // CORS headers are applied once at the top of handle(); don't re-add here.
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", "application/json");
-        McpHttpServer.applyCors(ex);
         ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = ex.getResponseBody()) {
             os.write(bytes);

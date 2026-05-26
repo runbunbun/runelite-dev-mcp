@@ -92,6 +92,7 @@ public class McpHttpServer {
     }
 
     private void handleHealth(HttpExchange ex) throws IOException {
+        applyCors(ex);
         JsonObject o = new JsonObject();
         o.addProperty("status", "ok");
         sendJson(ex, 200, o.toString());
@@ -372,9 +373,10 @@ public class McpHttpServer {
     }
 
     private static void sendJson(HttpExchange ex, int status, String json) throws IOException {
+        // CORS headers are applied by the request entry point (handleMcp/handleHealth);
+        // don't re-add here or every response gets dupes.
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().add("Content-Type", "application/json");
-        applyCors(ex);
         ex.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = ex.getResponseBody()) {
             os.write(bytes);
