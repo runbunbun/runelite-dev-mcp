@@ -47,6 +47,10 @@ public interface WorldReader {
     // Vars
     int getVarbitValue(int varbitId);
     int getVarpValue(int varpId);
+    /** Client-side integer var (VarClientInt) — interface/session state not in varbits/varps. */
+    default int getVarcIntValue(int varcId) { return 0; }
+    /** Client-side string var (VarClientStr) — e.g. typed search text. Null when unset/unsupported. */
+    default String getVarcStrValue(int varcId) { return null; }
 
     // Widgets
     boolean isWidgetVisible(int group, int child);
@@ -73,6 +77,14 @@ public interface WorldReader {
     default int getSceneBaseY() { return 0; }
     /** True iff the player is currently inside an OSRS instance (custom-built scene). */
     default boolean isInInstance() { return false; }
+    /** Loaded map region ids for the current scene (client.getMapRegions). Empty when unsupported. */
+    default int[] getMapRegions() { return new int[0]; }
+    /**
+     * Per-chunk instance template map: {@code [plane][chunkX][chunkY]} packed ints, or null when
+     * not in an instance. Each entry encodes the rotation + template world chunk the scene chunk
+     * was copied from; {@link dev.runelite.mcp.InstanceGeometry} decodes/translates it.
+     */
+    default int[][][] getInstanceTemplateChunks() { return null; }
 
     // Camera / viewport
     /** Camera yaw in OSRS units (0-2047). 0 faces south; increases counter-clockwise. */

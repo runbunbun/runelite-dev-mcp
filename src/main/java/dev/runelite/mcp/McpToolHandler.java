@@ -67,7 +67,7 @@ public class McpToolHandler {
     public JsonArray getToolSchemas() {
         JsonArray tools = new JsonArray();
         tools.add(toolSchema("state", "[g] Query game state",
-            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,skills")));
+            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,skills,instance")));
         tools.add(toolSchema("npc", "[g] Query NPCs near the player",
             prop("n", "string", "Name filter"),
             prop("i", "string", "ID filter"),
@@ -89,9 +89,10 @@ public class McpToolHandler {
             prop("c", "number", "Child")));
         tools.add(toolSchema("loginstate", "[g] Client login state (LOGGED_IN, LOGIN_SCREEN, AUTHENTICATOR, etc.)"));
         tools.add(toolSchema("prayer", "[g] Active prayers + prayer point pool (current/max)"));
-        tools.add(toolSchema("var", "[g] Varbit value: m=v varbitId=<int>",
-            prop("m", "string", "Mode: v"),
-            prop("varbitId", "number", "Varbit ID")));
+        tools.add(toolSchema("var", "[g] Read a var by id: v=varbit (default) | p=varp | ci=varc-int | cs=varc-string",
+            prop("m", "string", "Mode: v (varbit) | p (varp) | ci (varc int) | cs (varc string)"),
+            prop("id", "number", "Var ID"),
+            prop("varbitId", "number", "Deprecated alias for id (varbit mode)")));
         tools.add(toolSchema("screenshot", "[g] Capture the game viewport as an inline PNG image"));
         tools.add(toolSchema("menu", "[g] Query right-click menu entries currently at cursor"));
         tools.add(toolSchema("chat", "[g] Read recent chat messages",
@@ -203,6 +204,12 @@ public class McpToolHandler {
             root.add("npcs", o);
         }
         if (sections.contains("skills")) root.add("skills", skillsJson());
+        if (sections.contains("instance")) {
+            root.add("instance", InstanceGeometry.toJson(
+                world.isInInstance(), world.getSceneBaseX(), world.getSceneBaseY(),
+                p.plane, p.worldX, p.worldY,
+                world.getMapRegions(), world.getInstanceTemplateChunks()));
+        }
         return root.toString();
     }
 
@@ -457,13 +464,38 @@ public class McpToolHandler {
     private String handleVar(String args) {
         String mode = McpHttpServer.parseStringField(args, "m");
         if (mode == null) mode = "v";
+        // Accept id=<int>; fall back to the legacy varbitId param for varbit callers.
+        String idStr = McpHttpServer.parseStringField(args, "id");
+        if (idStr == null) idStr = McpHttpServer.parseStringField(args, "varbitId");
+        if (idStr == null) return errorResponse("Missing var id (id=<int>)");
+        int id;
+        try { id = Integer.parseInt(idStr.trim()); }
+        catch (NumberFormatException e) { return errorResponse("Invalid var id: " + idStr); }
+
         JsonObject root = makeRoot();
-        if (!"v".equals(mode)) return errorResponse("Var mode '" + mode + "' not implemented (use m=v)");
-        String idStr = McpHttpServer.parseStringField(args, "varbitId");
-        if (idStr == null) return errorResponse("Missing varbitId");
-        int id = Integer.parseInt(idStr);
-        root.addProperty("varbitId", id);
-        root.addProperty("value", world.getVarbitValue(id));
+        root.addProperty("mode", mode);
+        root.addProperty("id", id);
+        switch (mode) {
+            case "v":
+                root.addProperty("value", world.getVarbitValue(id));
+                root.addProperty("varbitId", id); // back-compat alias
+                break;
+            case "p":
+                root.addProperty("value", world.getVarpValue(id));
+                break;
+            case "ci":
+                root.addProperty("value", world.getVarcIntValue(id));
+                break;
+            case "cs": {
+                String s = world.getVarcStrValue(id);
+                if (s == null) root.add("value", com.google.gson.JsonNull.INSTANCE);
+                else root.addProperty("value", s);
+                break;
+            }
+            default:
+                return errorResponse("Unknown var mode: " + mode
+                    + " (use v=varbit | p=varp | ci=varc-int | cs=varc-string)");
+        }
         return root.toString();
     }
 
