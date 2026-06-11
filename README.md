@@ -131,7 +131,7 @@ Point-in-time state queries:
 
 | Tool | Args | Purpose |
 |------|------|---------|
-| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, players, skills, instance) | Player + world snapshot |
+| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, players, skills, instance, projectiles, graphics, camera) | Player + world snapshot |
 | `npc` | `n` (name), `i` (id CSV), `r` (radius) | NPCs near the player |
 | `obj` | `n` (name), `i` (id CSV) | Game objects in the scene |
 | `ground` | `n` (name) | Ground items near the player |
@@ -152,7 +152,7 @@ Historical / event-stream queries (server-side ring buffers, updated every tick)
 
 | Tool | Args | Purpose |
 |------|------|---------|
-| `buffer` | `t` (default `-5`), `types`, `names`, `ids`, `tile`, `area` | Per-tick state of player / NPCs / objects / ground items / other players / skills / hits. `t > 0` returns a full absolute snapshot at that tick; `t < 0` returns the last `|t|` ticks as sparse deltas with `added` / `removed` / `changed` per entity type. The `skills` type emits a per-skill object with only the changed fields (`gained` XP, `real` level-ups, `boosted` for temporary boosts / damage / regen). The `hits` type emits the list of `HitsplatApplied` events that landed on that tick. Ticks with no matching changes are omitted and counted in `ticksOmitted`. Capacity 200 ticks (~2 min). |
+| `buffer` | `t` (default `-5`), `types`, `names`, `ids`, `tile`, `area` | Per-tick state of player / NPCs / objects / ground items / other players / skills / hits / projectiles / graphics. `t > 0` returns a full absolute snapshot at that tick; `t < 0` returns the last `|t|` ticks as sparse deltas with `added` / `removed` / `changed` per entity type. The `skills` type emits a per-skill object with only the changed fields (`gained` XP, `real` level-ups, `boosted` for temporary boosts / damage / regen). The `hits`, `projectile` and `graphics` types are transient — they emit the full list present on that tick (no diffing), so a single attack is catchable here even when it lasts only a few ticks. Ticks with no matching changes are omitted and counted in `ticksOmitted`. Capacity 200 ticks (~2 min). |
 | `actions` | `t` (default 50), `option`, `target`, `opcodes`, `ids`, `since` | Recent `MenuOptionClicked` events: user clicks plus plugin / macro actions invoked through the public menu API (`Client.invokeMenuAction`, `Client.menuAction`). Does **not** catch actions that bypass the menu and send raw packets. Newest-last. Capacity 500 actions. |
 
 All responses include `_meta.gameTick` (OSRS runs at 600ms/tick). Actor responses
@@ -171,6 +171,21 @@ section exposes the data needed to translate them back:
   `template` world tile `[x, y, plane]`, and `chunks` lists every non-empty scene chunk with
   its `rotation` and source `templateX` / `templateY` / `templatePlane` so a consumer can
   translate any tile itself. The translation mirrors RuneLite's `WorldPoint.fromLocalInstance`.
+
+### `state inc=projectiles,graphics,camera` — scene effects & camera
+
+- **`projectiles`** — projectiles in flight (ranged/magic shots, cannonballs, boss attacks).
+  Each carries `spotanim`, `source` / `target` endpoints (world `pos` plus `actorIndex` /
+  `actorType` / `local` when the endpoint is an actor), and `ticksToImpact` — the headline
+  field for "dodge this" timing. Sorted local-player-target first, then soonest impact.
+- **`graphics`** — ground graphics objects / spotanims (AoE telegraphs, splashes): `id`,
+  world `pos`, `ageTicks`, `frame`, and `finished` when expiring.
+- **`camera`** — `yaw`, `pitch`, `zoom`, `pos` `[x,y,z]`, and `canvas` `[w,h]` — enough to
+  project world tiles to screen space and correlate the `screenshot` output with entity coords.
+
+Projectiles are short-lived, so a point-in-time `state` poll only catches one if it fires
+within a tick or two. For single attacks use the `buffer` (`types=projectile`), which records
+the list every tick; a continuous source (cannon, NMZ) shows up reliably in `state` too.
 
 ## Download
 

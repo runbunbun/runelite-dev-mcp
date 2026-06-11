@@ -71,7 +71,7 @@ public class McpToolHandler {
     public JsonArray getToolSchemas() {
         JsonArray tools = new JsonArray();
         tools.add(toolSchema("state", "[g] Query game state",
-            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,players,skills,instance")));
+            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,players,skills,instance,projectiles,graphics,camera")));
         tools.add(toolSchema("npc", "[g] Query NPCs near the player",
             prop("n", "string", "Name filter"),
             prop("i", "string", "ID filter"),
@@ -110,7 +110,7 @@ public class McpToolHandler {
         tools.add(toolSchema("buffer",
             "[g] Delta-encoded state buffer. t>0 = absolute tick (full snapshot); t<0 = last |t| ticks (sparse deltas with added/removed/changed). Default t=-5.",
             prop("t", "number", "Tick: positive = absolute tick #; negative = last N ticks; default -5"),
-            prop("types", "string", "Entity types CSV: npc,obj,ground,player,otherplayer,skills,hits (default all)"),
+            prop("types", "string", "Entity types CSV: npc,obj,ground,player,otherplayer,skills,hits,projectile,graphics (default all)"),
             prop("names", "string", "Name filter CSV (case-insensitive)"),
             prop("ids", "string", "ID filter CSV"),
             prop("tile", "string", "Tile filter: \"x,y,plane\""),
@@ -241,7 +241,32 @@ public class McpToolHandler {
                 p.plane, p.worldX, p.worldY,
                 world.getMapRegions(), world.getInstanceTemplateChunks()));
         }
+        if (sections.contains("projectiles")) {
+            JsonArray arr = new JsonArray();
+            for (var pr : world.getProjectiles()) arr.add(SceneJson.projectile(pr));
+            root.add("projectiles", arr);
+        }
+        if (sections.contains("graphics")) {
+            JsonArray arr = new JsonArray();
+            for (var g : world.getGraphicsObjects()) arr.add(SceneJson.graphicsObject(g));
+            root.add("graphics", arr);
+        }
+        if (sections.contains("camera")) root.add("camera", cameraJson());
         return root.toString();
+    }
+
+    private JsonObject cameraJson() {
+        JsonObject o = new JsonObject();
+        o.addProperty("yaw", world.getCameraYaw());
+        o.addProperty("pitch", world.getCameraPitch());
+        o.addProperty("zoom", world.getCameraZoom());
+        JsonArray pos = new JsonArray();
+        pos.add(world.getCameraX()); pos.add(world.getCameraY()); pos.add(world.getCameraZ());
+        o.add("pos", pos);
+        JsonArray canvas = new JsonArray();
+        canvas.add(world.getCanvasWidth()); canvas.add(world.getCanvasHeight());
+        o.add("canvas", canvas);
+        return o;
     }
 
     private String handleNpc(String args) {

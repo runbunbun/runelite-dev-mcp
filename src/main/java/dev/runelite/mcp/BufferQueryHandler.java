@@ -32,7 +32,8 @@ import java.util.Set;
 public class BufferQueryHandler {
 
     private static final Set<String> ALL_TYPES = new HashSet<>(Arrays.asList(
-        "npc", "obj", "ground", "player", "otherplayer", "skills", "hits"));
+        "npc", "obj", "ground", "player", "otherplayer", "skills", "hits",
+        "projectile", "graphics"));
 
     private final StateBuffer buffer;
     private final int currentTick;
@@ -121,6 +122,12 @@ public class BufferQueryHandler {
         if (filter.includesType("hits") && s.hits != null && !s.hits.isEmpty()) {
             state.add("hits", hitsJson(s.hits));
         }
+        if (filter.includesType("projectile") && s.projectiles != null && !s.projectiles.isEmpty()) {
+            state.add("projectiles", projectilesJson(s.projectiles));
+        }
+        if (filter.includesType("graphics") && s.graphicsObjects != null && !s.graphicsObjects.isEmpty()) {
+            state.add("graphics", graphicsJson(s.graphicsObjects));
+        }
         root.add("state", state);
     }
 
@@ -190,7 +197,32 @@ public class BufferQueryHandler {
         if (filter.includesType("hits") && curr.hits != null && !curr.hits.isEmpty()) {
             out.add("hits", hitsJson(curr.hits));
         }
+        if (filter.includesType("projectile") && curr.projectiles != null && !curr.projectiles.isEmpty()) {
+            out.add("projectiles", projectilesJson(curr.projectiles));
+        }
+        if (filter.includesType("graphics") && curr.graphicsObjects != null && !curr.graphicsObjects.isEmpty()) {
+            out.add("graphics", graphicsJson(curr.graphicsObjects));
+        }
         return out;
+    }
+
+    // ========== Scene effects (projectiles / graphics) ==========
+
+    /**
+     * Projectiles and graphics objects are transient scene effects, not entities tracked
+     * across ticks, so — like {@link #hitsJson} — the delta and absolute renderings are
+     * identical: just the list present on this tick.
+     */
+    private static JsonArray projectilesJson(List<dev.runelite.mcp.api.snapshot.ProjectileSnapshot> ps) {
+        JsonArray arr = new JsonArray();
+        for (dev.runelite.mcp.api.snapshot.ProjectileSnapshot p : ps) arr.add(SceneJson.projectile(p));
+        return arr;
+    }
+
+    private static JsonArray graphicsJson(List<dev.runelite.mcp.api.snapshot.GraphicsObjectSnapshot> gs) {
+        JsonArray arr = new JsonArray();
+        for (dev.runelite.mcp.api.snapshot.GraphicsObjectSnapshot g : gs) arr.add(SceneJson.graphicsObject(g));
+        return arr;
     }
 
     // ========== Skills ==========
