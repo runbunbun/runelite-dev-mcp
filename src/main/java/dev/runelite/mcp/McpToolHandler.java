@@ -71,7 +71,7 @@ public class McpToolHandler {
     public JsonArray getToolSchemas() {
         JsonArray tools = new JsonArray();
         tools.add(toolSchema("state", "[g] Query game state",
-            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,players,skills,instance,projectiles,graphics,camera")));
+            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,players,skills,instance,projectiles,graphics,camera,world")));
         tools.add(toolSchema("npc", "[g] Query NPCs near the player",
             prop("n", "string", "Name filter"),
             prop("i", "string", "ID filter"),
@@ -103,6 +103,11 @@ public class McpToolHandler {
             prop("y", "number", "World Y (defaults to local player Y)"),
             prop("plane", "number", "Plane (defaults to local player plane)"),
             prop("radius", "number", "World-tile radius around center, capped at 8; default 0")));
+        tools.add(toolSchema("container", "[g] Read any item container by InventoryID (id=<int> or name: inventory|equipment|bank|looting_bag|seed_vault|group_storage)",
+            prop("id", "string", "Container InventoryID (numeric) or a known name")));
+        tools.add(toolSchema("def", "[g] Look up a cache definition by id (resolve ids the agent sees to names/actions/stats)",
+            prop("type", "string", "item | npc | obj"),
+            prop("id", "number", "Definition id")));
         tools.add(toolSchema("screenshot", "[g] Capture the game viewport as an inline PNG image"));
         tools.add(toolSchema("menu", "[g] Query right-click menu entries currently at cursor"));
         tools.add(toolSchema("chat", "[g] Read recent chat messages",
@@ -182,6 +187,8 @@ public class McpToolHandler {
             case "prayer":          return handlePrayer();
             case "var":             return handleVar(args);
             case "collision":       return handleCollision(args);
+            case "container":       return handleContainer(args);
+            case "def":             return handleDef(args);
             case "menu":            return handleMenu();
             case "chat":            return handleChatRead(args);
             default:                return errorResponse("Unknown tool: " + toolName);
@@ -252,7 +259,24 @@ public class McpToolHandler {
             root.add("graphics", arr);
         }
         if (sections.contains("camera")) root.add("camera", cameraJson());
+        if (sections.contains("world")) {
+            JsonObject w = new JsonObject();
+            w.addProperty("world", world.getWorld());
+            JsonArray types = new JsonArray();
+            for (String t : world.getWorldTypes()) types.add(t);
+            w.add("types", types);
+            root.add("world", w);
+        }
         return root.toString();
+    }
+
+    /** Projected canvas point [px,py] for a world tile, or null when off-screen. */
+    private JsonArray screenArray(int worldX, int worldY, int plane) {
+        int[] s = world.worldPointToScreen(worldX, worldY, plane);
+        if (s == null) return null;
+        JsonArray a = new JsonArray();
+        a.add(s[0]); a.add(s[1]);
+        return a;
     }
 
     private JsonObject cameraJson() {
@@ -303,6 +327,8 @@ public class McpToolHandler {
         for (NpcSnapshot n : sorted) {
             JsonObject o = npcDetail(n);
             o.addProperty("dist", Math.abs(n.worldX - local.worldX) + Math.abs(n.worldY - local.worldY));
+            JsonArray screen = screenArray(n.worldX, n.worldY, n.plane);
+            if (screen != null) o.add("screen", screen);
             items.add(o);
         }
         root.add("items", items);
@@ -347,6 +373,8 @@ public class McpToolHandler {
             j.add("pos", posArray(o.worldX, o.worldY, o.plane));
             if (o.objectType != null) j.addProperty("type", o.objectType);
             if (o.actions != null) j.add("actions", actionsArray(o.actions));
+            JsonArray screen = screenArray(o.worldX, o.worldY, o.plane);
+            if (screen != null) j.add("screen", screen);
             items.add(j);
         }
         root.add("items", items);
@@ -411,6 +439,8 @@ public class McpToolHandler {
             if (it.name != null) j.addProperty("name", it.name);
             j.addProperty("quantity", it.quantity);
             j.add("pos", posArray(it.worldX, it.worldY, it.plane));
+            JsonArray screen = screenArray(it.worldX, it.worldY, it.plane);
+            if (screen != null) j.add("screen", screen);
             arr.add(j);
         }
         root.add("items", arr);
@@ -608,6 +638,98 @@ public class McpToolHandler {
             }
         }
         root.add("tiles", tiles);
+        return root.toString();
+    }
+
+    // ========== Containers ==========
+
+    private String handleContainer(String args) {
+        String idArg = McpHttpServer.parseStringField(args, "id");
+        if (idArg == null) return errorResponse("container needs id=<int|name>");
+        Integer cid = resolveContainerId(idArg.trim());
+        if (cid == null) return errorResponse("Unknown container: " + idArg
+            + " (use a numeric InventoryID or: inventory|equipment|bank|looting_bag|seed_vault|group_storage)");
+
+        List<ItemSnapshot> items = world.getItemContainerById(cid);
+        JsonObject root = makeRoot();
+        root.addProperty("id", cid);
+        root.addProperty("total", items.size());
+        JsonArray arr = new JsonArray();
+        for (ItemSnapshot it : items) arr.add(itemDetail(it));
+        root.add("items", arr);
+        return root.toString();
+    }
+
+    /** Resolve a container arg (numeric InventoryID or a known name) to its int id. Null if unknown. */
+    static Integer resolveContainerId(String arg) {
+        if (arg == null || arg.isEmpty()) return null;
+        try { return Integer.parseInt(arg); } catch (NumberFormatException ignored) {}
+        switch (arg.toLowerCase().replace("-", "_").replace(" ", "_")) {
+            case "inventory": case "inv":           return 93;
+            case "equipment": case "equip": case "worn": return 94;
+            case "bank":                            return 95;
+            case "looting_bag": case "lootingbag":  return 516;
+            case "seed_vault": case "seedvault":    return 626;
+            case "group_storage": case "gim":       return 659;
+            default: return null;
+        }
+    }
+
+    // ========== Cache definition lookup ==========
+
+    private String handleDef(String args) {
+        String type = McpHttpServer.parseStringField(args, "type");
+        String idStr = McpHttpServer.parseStringField(args, "id");
+        if (type == null || idStr == null) return errorResponse("def needs type=item|npc|obj and id=<int>");
+        int id;
+        try { id = Integer.parseInt(idStr.trim()); }
+        catch (NumberFormatException e) { return errorResponse("Invalid id: " + idStr); }
+
+        JsonObject root = makeRoot();
+        root.addProperty("type", type);
+        root.addProperty("id", id);
+        switch (type.toLowerCase()) {
+            case "item": {
+                net.runelite.api.ItemComposition c = client.getItemDefinition(id);
+                if (c == null || c.getName() == null) { root.addProperty("found", false); return root.toString(); }
+                root.addProperty("found", true);
+                root.addProperty("name", c.getName());
+                root.addProperty("members", c.isMembers());
+                root.addProperty("stackable", c.isStackable());
+                root.addProperty("tradeable", c.isTradeable());
+                root.addProperty("price", c.getPrice());
+                root.addProperty("haPrice", c.getHaPrice());
+                if (c.getLinkedNoteId() != -1) root.addProperty("linkedNoteId", c.getLinkedNoteId());
+                JsonArray a = nonEmptyActionsArray(c.getInventoryActions());
+                if (a.size() > 0) root.add("actions", a);
+                break;
+            }
+            case "npc": {
+                net.runelite.api.NPCComposition c = client.getNpcDefinition(id);
+                if (c == null || c.getName() == null) { root.addProperty("found", false); return root.toString(); }
+                root.addProperty("found", true);
+                root.addProperty("name", c.getName());
+                root.addProperty("combatLevel", c.getCombatLevel());
+                root.addProperty("size", c.getSize());
+                JsonArray a = nonEmptyActionsArray(c.getActions());
+                if (a.size() > 0) root.add("actions", a);
+                break;
+            }
+            case "obj": case "object": {
+                net.runelite.api.ObjectComposition c = client.getObjectDefinition(id);
+                if (c == null || c.getName() == null) { root.addProperty("found", false); return root.toString(); }
+                root.addProperty("found", true);
+                root.addProperty("name", c.getName());
+                JsonArray size = new JsonArray();
+                size.add(c.getSizeX()); size.add(c.getSizeY());
+                root.add("size", size);
+                JsonArray a = nonEmptyActionsArray(c.getActions());
+                if (a.size() > 0) root.add("actions", a);
+                break;
+            }
+            default:
+                return errorResponse("Unknown def type: " + type + " (use item|npc|obj)");
+        }
         return root.toString();
     }
 
