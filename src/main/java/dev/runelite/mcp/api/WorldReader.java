@@ -31,6 +31,8 @@ public interface WorldReader {
     List<ItemSnapshot> getBankItems();
     /** Read any item container by its InventoryID (e.g. seed vault 626, looting bag 516). Empty when absent. */
     default List<ItemSnapshot> getItemContainerById(int containerId) { return java.util.Collections.emptyList(); }
+    /** Active Grand Exchange offers (non-EMPTY slots), item names resolved. Empty when none/unsupported. */
+    default List<GeOfferSnapshot> getGrandExchangeOffers() { return java.util.Collections.emptyList(); }
 
     /**
      * Resolve an item ID to its in-game display name (e.g. 385 → "Shark").

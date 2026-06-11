@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.runelite.mcp.api.WorldReader;
 import dev.runelite.mcp.api.snapshot.DialogueSnapshot;
+import dev.runelite.mcp.api.snapshot.GeOfferSnapshot;
 import dev.runelite.mcp.api.snapshot.GroundItemSnapshot;
 import dev.runelite.mcp.api.snapshot.InterfaceSnapshot;
 import dev.runelite.mcp.api.snapshot.ItemSnapshot;
@@ -108,6 +109,7 @@ public class McpToolHandler {
         tools.add(toolSchema("def", "[g] Look up a cache definition by id (resolve ids the agent sees to names/actions/stats)",
             prop("type", "string", "item | npc | obj"),
             prop("id", "number", "Definition id")));
+        tools.add(toolSchema("ge", "[g] Grand Exchange offers — active buy/sell slots with item, price, progress, gp moved"));
         tools.add(toolSchema("screenshot", "[g] Capture the game viewport as an inline PNG image"));
         tools.add(toolSchema("menu", "[g] Query right-click menu entries currently at cursor"));
         tools.add(toolSchema("chat", "[g] Read recent chat messages",
@@ -189,6 +191,7 @@ public class McpToolHandler {
             case "collision":       return handleCollision(args);
             case "container":       return handleContainer(args);
             case "def":             return handleDef(args);
+            case "ge":              return handleGe();
             case "menu":            return handleMenu();
             case "chat":            return handleChatRead(args);
             default:                return errorResponse("Unknown tool: " + toolName);
@@ -731,6 +734,35 @@ public class McpToolHandler {
                 return errorResponse("Unknown def type: " + type + " (use item|npc|obj)");
         }
         return root.toString();
+    }
+
+    // ========== Grand Exchange ==========
+
+    private String handleGe() {
+        List<GeOfferSnapshot> offers = world.getGrandExchangeOffers();
+        JsonObject root = makeRoot();
+        root.addProperty("active", offers.size());
+        JsonArray arr = new JsonArray();
+        for (GeOfferSnapshot o : offers) {
+            JsonObject j = new JsonObject();
+            j.addProperty("slot", o.slot);
+            j.addProperty("state", o.state);
+            j.addProperty("buy", isBuyState(o.state));
+            j.addProperty("itemId", o.itemId);
+            if (o.itemName != null) j.addProperty("name", o.itemName);
+            j.addProperty("price", o.price);
+            j.addProperty("quantitySold", o.quantitySold);
+            j.addProperty("totalQuantity", o.totalQuantity);
+            j.addProperty("spent", o.spent);
+            arr.add(j);
+        }
+        root.add("offers", arr);
+        return root.toString();
+    }
+
+    /** Whether a GrandExchangeOfferState name represents a buy (vs sell) offer. */
+    static boolean isBuyState(String state) {
+        return "BUYING".equals(state) || "BOUGHT".equals(state) || "CANCELLED_BUY".equals(state);
     }
 
     // ========== Widget Picker ==========

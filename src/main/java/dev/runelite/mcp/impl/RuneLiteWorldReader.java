@@ -697,6 +697,24 @@ public class RuneLiteWorldReader implements WorldReader {
         return mapContainer(client.getItemContainer(containerId));
     }
 
+    @Override
+    public List<GeOfferSnapshot> getGrandExchangeOffers() {
+        GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
+        if (offers == null) return Collections.emptyList();
+        List<GeOfferSnapshot> out = new ArrayList<>();
+        for (int slot = 0; slot < offers.length; slot++) {
+            GrandExchangeOffer o = offers[slot];
+            if (o == null) continue;
+            GrandExchangeOfferState st = o.getState();
+            if (st == null || st == GrandExchangeOfferState.EMPTY) continue;
+            ItemComposition comp = client.getItemDefinition(o.getItemId());
+            String name = comp != null ? comp.getName() : null;
+            out.add(new GeOfferSnapshot(slot, st.name(), o.getItemId(), name,
+                o.getPrice(), o.getTotalQuantity(), o.getQuantitySold(), o.getSpent()));
+        }
+        return out;
+    }
+
     private List<ItemSnapshot> mapContainer(ItemContainer container) {
         if (container == null) return Collections.emptyList();
 
