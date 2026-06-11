@@ -131,7 +131,7 @@ Point-in-time state queries:
 
 | Tool | Args | Purpose |
 |------|------|---------|
-| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, skills) | Player + world snapshot |
+| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, players, skills) | Player + world snapshot |
 | `npc` | `n` (name), `i` (id CSV), `r` (radius) | NPCs near the player |
 | `obj` | `n` (name), `i` (id CSV) | Game objects in the scene |
 | `ground` | `n` (name) | Ground items near the player |
@@ -154,7 +154,9 @@ Historical / event-stream queries (server-side ring buffers, updated every tick)
 | `buffer` | `t` (default `-5`), `types`, `names`, `ids`, `tile`, `area` | Per-tick state of player / NPCs / objects / ground items / other players / skills / hits. `t > 0` returns a full absolute snapshot at that tick; `t < 0` returns the last `|t|` ticks as sparse deltas with `added` / `removed` / `changed` per entity type. The `skills` type emits a per-skill object with only the changed fields (`gained` XP, `real` level-ups, `boosted` for temporary boosts / damage / regen). The `hits` type emits the list of `HitsplatApplied` events that landed on that tick. Ticks with no matching changes are omitted and counted in `ticksOmitted`. Capacity 200 ticks (~2 min). |
 | `actions` | `t` (default 50), `option`, `target`, `opcodes`, `ids`, `since` | Recent `MenuOptionClicked` events: user clicks plus plugin / macro actions invoked through the public menu API (`Client.invokeMenuAction`, `Client.menuAction`). Does **not** catch actions that bypass the menu and send raw packets. Newest-last. Capacity 500 actions. |
 
-All responses include `_meta.gameTick` (OSRS runs at 600ms/tick).
+All responses include `_meta.gameTick` (OSRS runs at 600ms/tick). Actor responses
+include animation, movement, health, interaction target, and recent hitsplat context
+where available.
 
 ## Download
 

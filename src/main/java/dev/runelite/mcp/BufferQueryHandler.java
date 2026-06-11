@@ -282,13 +282,24 @@ public class BufferQueryHandler {
         JsonObject changed = new JsonObject();
         diffPos(changed, "pos", prev.worldX, prev.worldY, prev.plane, curr.worldX, curr.worldY, curr.plane);
         diffInt(changed, "animation", prev.animation, curr.animation);
+        diffBool(changed, "animating", prev.animating, curr.animating);
+        diffBool(changed, "idle", prev.idle, curr.idle);
+        diffBool(changed, "moving", prev.moving, curr.moving);
         diffInt(changed, "currentHealth", prev.currentHealth, curr.currentHealth);
+        diffInt(changed, "maxHealth", prev.maxHealth, curr.maxHealth);
+        diffInt(changed, "healthRatio", prev.healthRatio, curr.healthRatio);
+        diffInt(changed, "healthScale", prev.healthScale, curr.healthScale);
         diffInt(changed, "prayerPoints", prev.prayerPoints, curr.prayerPoints);
+        diffInt(changed, "maxPrayerPoints", prev.maxPrayerPoints, curr.maxPrayerPoints);
         diffInt(changed, "runEnergy", prev.runEnergy, curr.runEnergy);
         diffInt(changed, "specialAttackEnergy", prev.specialAttackEnergy, curr.specialAttackEnergy);
         diffBool(changed, "runEnabled", prev.runEnabled, curr.runEnabled);
+        diffInt(changed, "overheadIcon", prev.overheadIcon, curr.overheadIcon);
+        diffInt(changed, "skullIcon", prev.skullIcon, curr.skullIcon);
+        diffInt(changed, "weaponId", prev.weaponId, curr.weaponId);
         diffBool(changed, "interacting", prev.interacting, curr.interacting);
         diffInt(changed, "interactingIndex", prev.interactingIndex, curr.interactingIndex);
+        diffStr(changed, "interactingType", prev.interactingType, curr.interactingType);
         diffStr(changed, "interactingName", prev.interactingName, curr.interactingName);
         diffBool(changed, "poisoned", prev.poisoned, curr.poisoned);
         diffBool(changed, "venomed", prev.venomed, curr.venomed);
@@ -331,11 +342,16 @@ public class BufferQueryHandler {
     private JsonObject npcDelta(NpcSnapshot prev, NpcSnapshot curr) {
         JsonObject c = new JsonObject();
         diffPos(c, "pos", prev.worldX, prev.worldY, prev.plane, curr.worldX, curr.worldY, curr.plane);
+        diffInt(c, "combatLevel", prev.combatLevel, curr.combatLevel);
         diffInt(c, "animation", prev.animation, curr.animation);
         diffInt(c, "healthRatio", prev.healthRatio, curr.healthRatio);
+        diffInt(c, "healthScale", prev.healthScale, curr.healthScale);
         diffBool(c, "interacting", prev.interacting, curr.interacting);
         diffInt(c, "interactingIndex", prev.interactingIndex, curr.interactingIndex);
+        diffStr(c, "interactingType", prev.interactingType, curr.interactingType);
         diffStr(c, "interactingName", prev.interactingName, curr.interactingName);
+        diffInt(c, "size", prev.size, curr.size);
+        diffInt(c, "orientation", prev.orientation, curr.orientation);
         diffInt(c, "overheadIcon", prev.overheadIcon, curr.overheadIcon);
         diffBool(c, "inCombat", prev.inCombat, curr.inCombat);
         return c;
@@ -419,13 +435,8 @@ public class BufferQueryHandler {
             PlayerSnapshot prevP = prevMap.get(e.getKey());
             if (prevP == null) added.add(playerJson(e.getValue()));
             else {
-                JsonObject c = new JsonObject();
-                diffPos(c, "pos", prevP.worldX, prevP.worldY, prevP.plane, e.getValue().worldX, e.getValue().worldY, e.getValue().plane);
-                diffInt(c, "animation", prevP.animation, e.getValue().animation);
-                diffInt(c, "currentHealth", prevP.currentHealth, e.getValue().currentHealth);
-                diffBool(c, "interacting", prevP.interacting, e.getValue().interacting);
-                diffStr(c, "interactingName", prevP.interactingName, e.getValue().interactingName);
-                if (c.size() > 0) changed.add(e.getKey(), c);
+                JsonObject c = playerDelta(prevP, e.getValue());
+                if (c != null && c.size() > 0) changed.add(e.getKey(), c);
             }
         }
         for (Map.Entry<String, PlayerSnapshot> e : prevMap.entrySet()) {
@@ -441,38 +452,11 @@ public class BufferQueryHandler {
     // ========== JSON entity renderers ==========
 
     private static JsonObject playerJson(PlayerSnapshot p) {
-        JsonObject o = new JsonObject();
-        o.addProperty("name", p.name);
-        JsonArray pos = new JsonArray();
-        pos.add(p.worldX); pos.add(p.worldY); pos.add(p.plane);
-        o.add("pos", pos);
-        o.addProperty("animation", p.animation);
-        o.addProperty("currentHealth", p.currentHealth);
-        o.addProperty("maxHealth", p.maxHealth);
-        o.addProperty("prayerPoints", p.prayerPoints);
-        o.addProperty("runEnergy", p.runEnergy);
-        o.addProperty("runEnabled", p.runEnabled);
-        o.addProperty("interacting", p.interacting);
-        if (p.interactingName != null) o.addProperty("interactingName", p.interactingName);
-        return o;
+        return ActorJson.player(p);
     }
 
     private static JsonObject npcJson(NpcSnapshot n) {
-        JsonObject o = new JsonObject();
-        o.addProperty("index", n.index);
-        o.addProperty("id", n.id);
-        if (n.name != null) o.addProperty("name", n.name);
-        JsonArray pos = new JsonArray();
-        pos.add(n.worldX); pos.add(n.worldY); pos.add(n.plane);
-        o.add("pos", pos);
-        o.addProperty("animation", n.animation);
-        o.addProperty("healthRatio", n.healthRatio);
-        o.addProperty("healthScale", n.healthScale);
-        if (n.interacting) {
-            o.addProperty("interactingIndex", n.interactingIndex);
-            if (n.interactingName != null) o.addProperty("interactingName", n.interactingName);
-        }
-        return o;
+        return ActorJson.npcDetail(n);
     }
 
     private static JsonObject objJson(ObjectSnapshot ob) {

@@ -67,7 +67,7 @@ public class McpToolHandler {
     public JsonArray getToolSchemas() {
         JsonArray tools = new JsonArray();
         tools.add(toolSchema("state", "[g] Query game state",
-            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,skills")));
+            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,players,skills")));
         tools.add(toolSchema("npc", "[g] Query NPCs near the player",
             prop("n", "string", "Name filter"),
             prop("i", "string", "ID filter"),
@@ -193,14 +193,34 @@ public class McpToolHandler {
         if (sections.contains("inventory")) root.add("inventory", containerJson(world.getInventory(), 28));
         if (sections.contains("equipment")) root.add("equipment", containerJson(world.getEquipment(), -1));
         if (sections.contains("npcs")) {
+            List<NpcSnapshot> npcs = world.getNpcs();
             JsonArray arr = new JsonArray();
-            for (NpcSnapshot n : world.getNpcs().stream().limit(10).collect(Collectors.toList())) {
-                arr.add(npcSummary(n));
+            for (NpcSnapshot n : npcs.stream()
+                .sorted(Comparator.comparingInt(n ->
+                    Math.abs(n.worldX - p.worldX) + Math.abs(n.worldY - p.worldY)))
+                .limit(10)
+                .collect(Collectors.toList())) {
+                arr.add(ActorJson.npcSummary(n));
             }
             JsonObject o = new JsonObject();
-            o.addProperty("total", world.getNpcs().size());
+            o.addProperty("total", npcs.size());
             o.add("items", arr);
             root.add("npcs", o);
+        }
+        if (sections.contains("players")) {
+            List<PlayerSnapshot> players = world.getOtherPlayers();
+            JsonArray arr = new JsonArray();
+            for (PlayerSnapshot other : players.stream()
+                .sorted(Comparator.comparingInt(other ->
+                    Math.abs(other.worldX - p.worldX) + Math.abs(other.worldY - p.worldY)))
+                .limit(10)
+                .collect(Collectors.toList())) {
+                arr.add(playerJson(other));
+            }
+            JsonObject o = new JsonObject();
+            o.addProperty("total", players.size());
+            o.add("items", arr);
+            root.add("players", o);
         }
         if (sections.contains("skills")) root.add("skills", skillsJson());
         return root.toString();
@@ -639,14 +659,7 @@ public class McpToolHandler {
     // ========== Snapshot → JSON helpers ==========
 
     private static JsonObject playerJson(PlayerSnapshot p) {
-        JsonObject o = new JsonObject();
-        if (p.name != null) o.addProperty("name", p.name);
-        o.add("pos", posArray(p.worldX, p.worldY, p.plane));
-        o.addProperty("animation", p.animation);
-        o.addProperty("idle", p.idle);
-        o.addProperty("moving", p.moving);
-        o.addProperty("combatLevel", p.combatLevel);
-        return o;
+        return ActorJson.player(p);
     }
 
     private static JsonObject resourcesJson(PlayerSnapshot p) {
@@ -699,25 +712,11 @@ public class McpToolHandler {
     }
 
     private static JsonObject npcSummary(NpcSnapshot n) {
-        JsonObject o = new JsonObject();
-        o.addProperty("index", n.index);
-        o.addProperty("id", n.id);
-        if (n.name != null) o.addProperty("name", n.name);
-        o.add("pos", posArray(n.worldX, n.worldY, n.plane));
-        JsonArray hp = new JsonArray();
-        hp.add(n.healthRatio); hp.add(n.healthScale);
-        o.add("hp", hp);
-        return o;
+        return ActorJson.npcSummary(n);
     }
 
     private static JsonObject npcDetail(NpcSnapshot n) {
-        JsonObject o = npcSummary(n);
-        o.addProperty("animation", n.animation);
-        if (n.actions != null) {
-            JsonArray a = nonEmptyActionsArray(n.actions);
-            if (a.size() > 0) o.add("actions", a);
-        }
-        return o;
+        return ActorJson.npcDetail(n);
     }
 
     private JsonObject skillsJson() {
