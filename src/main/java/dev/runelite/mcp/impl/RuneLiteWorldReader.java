@@ -689,7 +689,15 @@ public class RuneLiteWorldReader implements WorldReader {
     }
 
     private List<ItemSnapshot> readContainer(InventoryID containerId) {
-        ItemContainer container = client.getItemContainer(containerId);
+        return mapContainer(client.getItemContainer(containerId));
+    }
+
+    @Override
+    public List<ItemSnapshot> getItemContainerById(int containerId) {
+        return mapContainer(client.getItemContainer(containerId));
+    }
+
+    private List<ItemSnapshot> mapContainer(ItemContainer container) {
         if (container == null) return Collections.emptyList();
 
         Item[] items = container.getItems();
@@ -707,5 +715,29 @@ public class RuneLiteWorldReader implements WorldReader {
             ));
         }
         return result;
+    }
+
+    @Override
+    public int getWorld() {
+        return client.getWorld();
+    }
+
+    @Override
+    public List<String> getWorldTypes() {
+        List<String> out = new ArrayList<>();
+        for (net.runelite.api.WorldType t : client.getWorldType()) out.add(t.name());
+        return out;
+    }
+
+    @Override
+    public int[] worldPointToScreen(int worldX, int worldY, int plane) {
+        LocalPoint lp = LocalPoint.fromWorld(client, worldX, worldY);
+        if (lp == null) return null;
+        net.runelite.api.Point p = Perspective.localToCanvas(client, lp, plane);
+        if (p == null) return null;
+        int w = client.getCanvasWidth();
+        int h = client.getCanvasHeight();
+        if (p.getX() < 0 || p.getY() < 0 || p.getX() > w || p.getY() > h) return null;
+        return new int[]{ p.getX(), p.getY() };
     }
 }

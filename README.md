@@ -131,7 +131,7 @@ Point-in-time state queries:
 
 | Tool | Args | Purpose |
 |------|------|---------|
-| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, players, skills, instance, projectiles, graphics, camera) | Player + world snapshot |
+| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, players, skills, instance, projectiles, graphics, camera, world) | Player + world snapshot. The `world` section gives the world number + active `WorldType` flags (MEMBERS, PVP, SEASONAL, …). |
 | `npc` | `n` (name), `i` (id CSV), `r` (radius) | NPCs near the player |
 | `obj` | `n` (name), `i` (id CSV) | Game objects in the scene |
 | `ground` | `n` (name) | Ground items near the player |
@@ -147,6 +147,8 @@ Point-in-time state queries:
 | `loginstate` | — | Login state (`LOGGED_IN`, `LOGGING_IN`, etc.) |
 | `prayer` | — | Active prayers (list) + prayer point pool (`current` / `max`) |
 | `collision` | `x`, `y`, `plane`, `radius` | Collision flags for the local player tile or a loaded-scene world tile/radius, including raw flags, decoded movement/LOS blockers, and cardinal travel checks |
+| `container` | `id` (numeric InventoryID or name: `inventory`, `equipment`, `bank`, `looting_bag`, `seed_vault`, `group_storage`) | Read any item container by id — generalizes `inv`/`equip`/`bank` to seed vault, looting bag, GIM storage, etc. |
+| `def` | `type` (`item` \| `npc` \| `obj`), `id` | Resolve a cache definition by id → name, actions, and stats (item: members/stackable/tradeable/price/haPrice; npc: combat level/size; obj: size), without the entity being in-scene |
 
 Historical / event-stream queries (server-side ring buffers, updated every tick):
 
@@ -182,6 +184,10 @@ section exposes the data needed to translate them back:
   world `pos`, `ageTicks`, `frame`, and `finished` when expiring.
 - **`camera`** — `yaw`, `pitch`, `zoom`, `pos` `[x,y,z]`, and `canvas` `[w,h]` — enough to
   project world tiles to screen space and correlate the `screenshot` output with entity coords.
+
+On top of the raw camera, the live `npc` / `obj` / `ground` tools now attach a `screen`
+`[px, py]` field to each entity that is currently on-screen (omitted when off-screen), so a
+consumer can line up entities with the rendered viewport without doing the projection itself.
 
 Projectiles are short-lived, so a point-in-time `state` poll only catches one if it fires
 within a tick or two. For single attacks use the `buffer` (`types=projectile`), which records

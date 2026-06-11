@@ -29,6 +29,8 @@ public interface WorldReader {
     List<ItemSnapshot> getInventory();
     List<ItemSnapshot> getEquipment();
     List<ItemSnapshot> getBankItems();
+    /** Read any item container by its InventoryID (e.g. seed vault 626, looting bag 516). Empty when absent. */
+    default List<ItemSnapshot> getItemContainerById(int containerId) { return java.util.Collections.emptyList(); }
 
     /**
      * Resolve an item ID to its in-game display name (e.g. 385 → "Shark").
@@ -68,6 +70,15 @@ public interface WorldReader {
     int getGameState();
     int getEnergy();
     int getWeight();
+    /** Current world number (client.getWorld). -1 when unsupported. */
+    default int getWorld() { return -1; }
+    /** Active WorldType flag names (MEMBERS, PVP, SEASONAL/Leagues, etc.). Empty when none/unsupported. */
+    default List<String> getWorldTypes() { return java.util.Collections.emptyList(); }
+    /**
+     * Project a world tile to canvas pixels at the current camera pose. Returns {@code [px, py]},
+     * or {@code null} when the tile is off-screen / not rendered. Live-only (no meaning in buffer history).
+     */
+    default int[] worldPointToScreen(int worldX, int worldY, int plane) { return null; }
 
     // Scene base — world coords of the loaded scene's (0,0) corner. Needed
     // alongside player.worldX so recordings can disambiguate instance-local
