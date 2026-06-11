@@ -146,6 +146,7 @@ Point-in-time state queries:
 | `screenshot` | — | Game viewport PNG. Over MCP `tools/call` it's wrapped as `{"type":"image","data":"<base64>","mimeType":"image/png"}` so MCP-aware clients render it inline. |
 | `loginstate` | — | Login state (`LOGGED_IN`, `LOGGING_IN`, etc.) |
 | `prayer` | — | Active prayers (list) + prayer point pool (`current` / `max`) |
+| `collision` | `x`, `y`, `plane`, `radius` | Collision flags for the local player tile or a loaded-scene world tile/radius, including raw flags, decoded movement/LOS blockers, and cardinal travel checks |
 
 Historical / event-stream queries (server-side ring buffers, updated every tick):
 

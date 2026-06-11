@@ -12,9 +12,13 @@ import dev.runelite.mcp.api.snapshot.ObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.PlayerSnapshot;
 import dev.runelite.mcp.api.snapshot.WidgetSnapshot;
 import net.runelite.api.Client;
+import net.runelite.api.CollisionData;
+import net.runelite.api.CollisionDataFlag;
+import net.runelite.api.Constants;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.MessageNode;
 import net.runelite.api.Skill;
+import net.runelite.api.WorldView;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.ui.DrawManager;
 
@@ -36,7 +40,7 @@ import java.util.stream.Collectors;
 
 /**
  * Read-only MCP tool handler. Surfaces game state queries (state, npc, obj, inv, equip,
- * ground, bank, dialog, widget, var, screenshot, menu, chat, loginstate, prayer) to MCP
+ * ground, bank, dialog, widget, var, collision, screenshot, menu, chat, loginstate, prayer) to MCP
  * clients as structured JSON. All responses are gson-built {@link JsonObject}s carrying a
  * top-level {@code _meta.gameTick} and tool-specific payload fields.
  *
@@ -92,6 +96,12 @@ public class McpToolHandler {
         tools.add(toolSchema("var", "[g] Varbit value: m=v varbitId=<int>",
             prop("m", "string", "Mode: v"),
             prop("varbitId", "number", "Varbit ID")));
+        tools.add(toolSchema("collision",
+            "[g] Collision flags for the local player tile or a world tile/radius",
+            prop("x", "number", "World X (defaults to local player X)"),
+            prop("y", "number", "World Y (defaults to local player Y)"),
+            prop("plane", "number", "Plane (defaults to local player plane)"),
+            prop("radius", "number", "World-tile radius around center, capped at 8; default 0")));
         tools.add(toolSchema("screenshot", "[g] Capture the game viewport as an inline PNG image"));
         tools.add(toolSchema("menu", "[g] Query right-click menu entries currently at cursor"));
         tools.add(toolSchema("chat", "[g] Read recent chat messages",
@@ -170,6 +180,7 @@ public class McpToolHandler {
             case "loginstate":      return handleLoginState();
             case "prayer":          return handlePrayer();
             case "var":             return handleVar(args);
+            case "collision":       return handleCollision(args);
             case "menu":            return handleMenu();
             case "chat":            return handleChatRead(args);
             default:                return errorResponse("Unknown tool: " + toolName);
@@ -467,6 +478,62 @@ public class McpToolHandler {
         return root.toString();
     }
 
+    private String handleCollision(String args) {
+        PlayerSnapshot local = world.getLocalPlayer();
+        int centerX = parseIntArg(args, "x", local != null ? local.worldX : null);
+        int centerY = parseIntArg(args, "y", local != null ? local.worldY : null);
+        int plane = parseIntArg(args, "plane", local != null ? local.plane : client.getPlane());
+        int radius = parseIntArg(args, "radius", 0);
+        radius = Math.max(0, Math.min(radius, 8));
+
+        if (centerX < 0 || centerY < 0) {
+            return errorResponse("Missing x/y and no logged-in local player");
+        }
+
+        WorldView worldView = client.getTopLevelWorldView();
+        if (worldView == null) {
+            return errorResponse("World view unavailable");
+        }
+        CollisionData[] collisionData = worldView.getCollisionMaps();
+        if (collisionData == null) {
+            return errorResponse("Collision maps unavailable");
+        }
+        if (plane < 0 || plane >= collisionData.length || collisionData[plane] == null) {
+            return errorResponse("Collision map unavailable for plane " + plane);
+        }
+
+        int[][] flags = collisionData[plane].getFlags();
+        if (flags == null) {
+            return errorResponse("Collision flags unavailable for plane " + plane);
+        }
+        int baseX = worldView.getBaseX();
+        int baseY = worldView.getBaseY();
+        int centerSceneX = centerX - baseX;
+        int centerSceneY = centerY - baseY;
+        if (!isSceneTile(centerSceneX, centerSceneY, flags)) {
+            return errorResponse("Center tile is outside the loaded scene: " + centerX + "," + centerY + "," + plane);
+        }
+
+        JsonObject root = makeRoot();
+        root.add("center", posArray(centerX, centerY, plane));
+        root.add("centerScene", sceneArray(centerSceneX, centerSceneY));
+        root.addProperty("radius", radius);
+
+        JsonArray tiles = new JsonArray();
+        for (int wx = centerX - radius; wx <= centerX + radius; wx++) {
+            for (int wy = centerY - radius; wy <= centerY + radius; wy++) {
+                int sx = wx - baseX;
+                int sy = wy - baseY;
+                if (!isSceneTile(sx, sy, flags)) {
+                    continue;
+                }
+                tiles.add(collisionTileJson(wx, wy, plane, sx, sy, flags));
+            }
+        }
+        root.add("tiles", tiles);
+        return root.toString();
+    }
+
     // ========== Widget Picker ==========
 
     private String pickWidgetAtCursor() {
@@ -748,6 +815,12 @@ public class McpToolHandler {
         return a;
     }
 
+    private static JsonArray sceneArray(int x, int y) {
+        JsonArray a = new JsonArray();
+        a.add(x); a.add(y);
+        return a;
+    }
+
     private static JsonArray actionsArray(String[] actions) {
         JsonArray a = new JsonArray();
         for (String s : actions) a.add(s);
@@ -780,6 +853,95 @@ public class McpToolHandler {
             try { out.add(Integer.parseInt(t)); } catch (NumberFormatException ignored) {}
         }
         return out.isEmpty() ? null : out;
+    }
+
+    private static int parseIntArg(String args, String key, Integer fallback) {
+        String raw = McpHttpServer.parseStringField(args, key);
+        if (raw == null || raw.isBlank()) {
+            return fallback != null ? fallback : -1;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            return fallback != null ? fallback : -1;
+        }
+    }
+
+    private static JsonObject collisionTileJson(int worldX, int worldY, int plane,
+                                                int sceneX, int sceneY, int[][] flags) {
+        int raw = flags[sceneX][sceneY];
+        JsonObject tile = new JsonObject();
+        tile.add("pos", posArray(worldX, worldY, plane));
+        tile.add("scene", sceneArray(sceneX, sceneY));
+        tile.addProperty("raw", raw);
+        tile.addProperty("rawHex", "0x" + Integer.toHexString(raw));
+        tile.add("movement", movementFlagsJson(raw));
+        tile.add("lineOfSight", lineOfSightFlagsJson(raw));
+        tile.add("travel", travelJson(sceneX, sceneY, flags));
+        return tile;
+    }
+
+    private static JsonObject movementFlagsJson(int raw) {
+        JsonObject movement = new JsonObject();
+        movement.addProperty("northWest", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_NORTH_WEST));
+        movement.addProperty("north", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_NORTH));
+        movement.addProperty("northEast", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_NORTH_EAST));
+        movement.addProperty("east", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_EAST));
+        movement.addProperty("southEast", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_EAST));
+        movement.addProperty("south", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH));
+        movement.addProperty("southWest", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_WEST));
+        movement.addProperty("west", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_WEST));
+        movement.addProperty("object", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_OBJECT));
+        movement.addProperty("floorDecoration", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_FLOOR_DECORATION));
+        movement.addProperty("floor", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_FLOOR));
+        movement.addProperty("full", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_FULL));
+        return movement;
+    }
+
+    private static JsonObject lineOfSightFlagsJson(int raw) {
+        JsonObject lineOfSight = new JsonObject();
+        lineOfSight.addProperty("north", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_NORTH));
+        lineOfSight.addProperty("east", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_EAST));
+        lineOfSight.addProperty("south", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_SOUTH));
+        lineOfSight.addProperty("west", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_WEST));
+        lineOfSight.addProperty("full", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_FULL));
+        return lineOfSight;
+    }
+
+    private static JsonObject travelJson(int sceneX, int sceneY, int[][] flags) {
+        JsonObject travel = new JsonObject();
+        travel.addProperty("north", canTravel(sceneX, sceneY, 0, 1,
+            CollisionDataFlag.BLOCK_MOVEMENT_NORTH, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH, flags));
+        travel.addProperty("east", canTravel(sceneX, sceneY, 1, 0,
+            CollisionDataFlag.BLOCK_MOVEMENT_EAST, CollisionDataFlag.BLOCK_MOVEMENT_WEST, flags));
+        travel.addProperty("south", canTravel(sceneX, sceneY, 0, -1,
+            CollisionDataFlag.BLOCK_MOVEMENT_SOUTH, CollisionDataFlag.BLOCK_MOVEMENT_NORTH, flags));
+        travel.addProperty("west", canTravel(sceneX, sceneY, -1, 0,
+            CollisionDataFlag.BLOCK_MOVEMENT_WEST, CollisionDataFlag.BLOCK_MOVEMENT_EAST, flags));
+        return travel;
+    }
+
+    private static boolean canTravel(int sceneX, int sceneY, int dx, int dy,
+                                     int fromFlag, int toFlag, int[][] flags) {
+        int toX = sceneX + dx;
+        int toY = sceneY + dy;
+        if (!isSceneTile(toX, toY, flags)) {
+            return false;
+        }
+        int fromRaw = flags[sceneX][sceneY];
+        int toRaw = flags[toX][toY];
+        return (fromRaw & (CollisionDataFlag.BLOCK_MOVEMENT_FULL | fromFlag)) == 0
+            && (toRaw & (CollisionDataFlag.BLOCK_MOVEMENT_FULL | toFlag)) == 0;
+    }
+
+    private static boolean has(int raw, int flag) {
+        return (raw & flag) != 0;
+    }
+
+    private static boolean isSceneTile(int sceneX, int sceneY, int[][] flags) {
+        return sceneX >= 0 && sceneY >= 0
+            && sceneX < Constants.SCENE_SIZE && sceneY < Constants.SCENE_SIZE
+            && sceneX < flags.length && flags[sceneX] != null && sceneY < flags[sceneX].length;
     }
 
     private JsonObject makeRoot() {
