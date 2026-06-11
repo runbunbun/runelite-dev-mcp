@@ -12,9 +12,13 @@ import dev.runelite.mcp.api.snapshot.ObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.PlayerSnapshot;
 import dev.runelite.mcp.api.snapshot.WidgetSnapshot;
 import net.runelite.api.Client;
+import net.runelite.api.CollisionData;
+import net.runelite.api.CollisionDataFlag;
+import net.runelite.api.Constants;
 import net.runelite.api.MenuEntry;
 import net.runelite.api.MessageNode;
 import net.runelite.api.Skill;
+import net.runelite.api.WorldView;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.ui.DrawManager;
 
@@ -36,7 +40,7 @@ import java.util.stream.Collectors;
 
 /**
  * Read-only MCP tool handler. Surfaces game state queries (state, npc, obj, inv, equip,
- * ground, bank, dialog, widget, var, screenshot, menu, chat, loginstate, prayer) to MCP
+ * ground, bank, dialog, widget, var, collision, screenshot, menu, chat, loginstate, prayer) to MCP
  * clients as structured JSON. All responses are gson-built {@link JsonObject}s carrying a
  * top-level {@code _meta.gameTick} and tool-specific payload fields.
  *
@@ -67,7 +71,7 @@ public class McpToolHandler {
     public JsonArray getToolSchemas() {
         JsonArray tools = new JsonArray();
         tools.add(toolSchema("state", "[g] Query game state",
-            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,skills")));
+            prop("inc", "string", "Include sections (comma-separated): player,resources,inventory,equipment,npcs,players,skills,instance")));
         tools.add(toolSchema("npc", "[g] Query NPCs near the player",
             prop("n", "string", "Name filter"),
             prop("i", "string", "ID filter"),
@@ -89,9 +93,16 @@ public class McpToolHandler {
             prop("c", "number", "Child")));
         tools.add(toolSchema("loginstate", "[g] Client login state (LOGGED_IN, LOGIN_SCREEN, AUTHENTICATOR, etc.)"));
         tools.add(toolSchema("prayer", "[g] Active prayers + prayer point pool (current/max)"));
-        tools.add(toolSchema("var", "[g] Varbit value: m=v varbitId=<int>",
-            prop("m", "string", "Mode: v"),
-            prop("varbitId", "number", "Varbit ID")));
+        tools.add(toolSchema("var", "[g] Read a var by id: v=varbit (default) | p=varp | ci=varc-int | cs=varc-string",
+            prop("m", "string", "Mode: v (varbit) | p (varp) | ci (varc int) | cs (varc string)"),
+            prop("id", "number", "Var ID"),
+            prop("varbitId", "number", "Deprecated alias for id (varbit mode)")));
+        tools.add(toolSchema("collision",
+            "[g] Collision flags for the local player tile or a world tile/radius",
+            prop("x", "number", "World X (defaults to local player X)"),
+            prop("y", "number", "World Y (defaults to local player Y)"),
+            prop("plane", "number", "Plane (defaults to local player plane)"),
+            prop("radius", "number", "World-tile radius around center, capped at 8; default 0")));
         tools.add(toolSchema("screenshot", "[g] Capture the game viewport as an inline PNG image"));
         tools.add(toolSchema("menu", "[g] Query right-click menu entries currently at cursor"));
         tools.add(toolSchema("chat", "[g] Read recent chat messages",
@@ -170,6 +181,7 @@ public class McpToolHandler {
             case "loginstate":      return handleLoginState();
             case "prayer":          return handlePrayer();
             case "var":             return handleVar(args);
+            case "collision":       return handleCollision(args);
             case "menu":            return handleMenu();
             case "chat":            return handleChatRead(args);
             default:                return errorResponse("Unknown tool: " + toolName);
@@ -193,16 +205,42 @@ public class McpToolHandler {
         if (sections.contains("inventory")) root.add("inventory", containerJson(world.getInventory(), 28));
         if (sections.contains("equipment")) root.add("equipment", containerJson(world.getEquipment(), -1));
         if (sections.contains("npcs")) {
+            List<NpcSnapshot> npcs = world.getNpcs();
             JsonArray arr = new JsonArray();
-            for (NpcSnapshot n : world.getNpcs().stream().limit(10).collect(Collectors.toList())) {
-                arr.add(npcSummary(n));
+            for (NpcSnapshot n : npcs.stream()
+                .sorted(Comparator.comparingInt(n ->
+                    Math.abs(n.worldX - p.worldX) + Math.abs(n.worldY - p.worldY)))
+                .limit(10)
+                .collect(Collectors.toList())) {
+                arr.add(ActorJson.npcSummary(n));
             }
             JsonObject o = new JsonObject();
-            o.addProperty("total", world.getNpcs().size());
+            o.addProperty("total", npcs.size());
             o.add("items", arr);
             root.add("npcs", o);
         }
+        if (sections.contains("players")) {
+            List<PlayerSnapshot> players = world.getOtherPlayers();
+            JsonArray arr = new JsonArray();
+            for (PlayerSnapshot other : players.stream()
+                .sorted(Comparator.comparingInt(other ->
+                    Math.abs(other.worldX - p.worldX) + Math.abs(other.worldY - p.worldY)))
+                .limit(10)
+                .collect(Collectors.toList())) {
+                arr.add(playerJson(other));
+            }
+            JsonObject o = new JsonObject();
+            o.addProperty("total", players.size());
+            o.add("items", arr);
+            root.add("players", o);
+        }
         if (sections.contains("skills")) root.add("skills", skillsJson());
+        if (sections.contains("instance")) {
+            root.add("instance", InstanceGeometry.toJson(
+                world.isInInstance(), world.getSceneBaseX(), world.getSceneBaseY(),
+                p.plane, p.worldX, p.worldY,
+                world.getMapRegions(), world.getInstanceTemplateChunks()));
+        }
         return root.toString();
     }
 
@@ -457,13 +495,94 @@ public class McpToolHandler {
     private String handleVar(String args) {
         String mode = McpHttpServer.parseStringField(args, "m");
         if (mode == null) mode = "v";
+        // Accept id=<int>; fall back to the legacy varbitId param for varbit callers.
+        String idStr = McpHttpServer.parseStringField(args, "id");
+        if (idStr == null) idStr = McpHttpServer.parseStringField(args, "varbitId");
+        if (idStr == null) return errorResponse("Missing var id (id=<int>)");
+        int id;
+        try { id = Integer.parseInt(idStr.trim()); }
+        catch (NumberFormatException e) { return errorResponse("Invalid var id: " + idStr); }
+
         JsonObject root = makeRoot();
-        if (!"v".equals(mode)) return errorResponse("Var mode '" + mode + "' not implemented (use m=v)");
-        String idStr = McpHttpServer.parseStringField(args, "varbitId");
-        if (idStr == null) return errorResponse("Missing varbitId");
-        int id = Integer.parseInt(idStr);
-        root.addProperty("varbitId", id);
-        root.addProperty("value", world.getVarbitValue(id));
+        root.addProperty("mode", mode);
+        root.addProperty("id", id);
+        switch (mode) {
+            case "v":
+                root.addProperty("value", world.getVarbitValue(id));
+                root.addProperty("varbitId", id); // back-compat alias
+                break;
+            case "p":
+                root.addProperty("value", world.getVarpValue(id));
+                break;
+            case "ci":
+                root.addProperty("value", world.getVarcIntValue(id));
+                break;
+            case "cs": {
+                String s = world.getVarcStrValue(id);
+                if (s == null) root.add("value", com.google.gson.JsonNull.INSTANCE);
+                else root.addProperty("value", s);
+                break;
+            }
+            default:
+                return errorResponse("Unknown var mode: " + mode
+                    + " (use v=varbit | p=varp | ci=varc-int | cs=varc-string)");
+        }
+        return root.toString();
+    }
+
+    private String handleCollision(String args) {
+        PlayerSnapshot local = world.getLocalPlayer();
+        int centerX = parseIntArg(args, "x", local != null ? local.worldX : null);
+        int centerY = parseIntArg(args, "y", local != null ? local.worldY : null);
+        int plane = parseIntArg(args, "plane", local != null ? local.plane : client.getPlane());
+        int radius = parseIntArg(args, "radius", 0);
+        radius = Math.max(0, Math.min(radius, 8));
+
+        if (centerX < 0 || centerY < 0) {
+            return errorResponse("Missing x/y and no logged-in local player");
+        }
+
+        WorldView worldView = client.getTopLevelWorldView();
+        if (worldView == null) {
+            return errorResponse("World view unavailable");
+        }
+        CollisionData[] collisionData = worldView.getCollisionMaps();
+        if (collisionData == null) {
+            return errorResponse("Collision maps unavailable");
+        }
+        if (plane < 0 || plane >= collisionData.length || collisionData[plane] == null) {
+            return errorResponse("Collision map unavailable for plane " + plane);
+        }
+
+        int[][] flags = collisionData[plane].getFlags();
+        if (flags == null) {
+            return errorResponse("Collision flags unavailable for plane " + plane);
+        }
+        int baseX = worldView.getBaseX();
+        int baseY = worldView.getBaseY();
+        int centerSceneX = centerX - baseX;
+        int centerSceneY = centerY - baseY;
+        if (!isSceneTile(centerSceneX, centerSceneY, flags)) {
+            return errorResponse("Center tile is outside the loaded scene: " + centerX + "," + centerY + "," + plane);
+        }
+
+        JsonObject root = makeRoot();
+        root.add("center", posArray(centerX, centerY, plane));
+        root.add("centerScene", sceneArray(centerSceneX, centerSceneY));
+        root.addProperty("radius", radius);
+
+        JsonArray tiles = new JsonArray();
+        for (int wx = centerX - radius; wx <= centerX + radius; wx++) {
+            for (int wy = centerY - radius; wy <= centerY + radius; wy++) {
+                int sx = wx - baseX;
+                int sy = wy - baseY;
+                if (!isSceneTile(sx, sy, flags)) {
+                    continue;
+                }
+                tiles.add(collisionTileJson(wx, wy, plane, sx, sy, flags));
+            }
+        }
+        root.add("tiles", tiles);
         return root.toString();
     }
 
@@ -639,14 +758,7 @@ public class McpToolHandler {
     // ========== Snapshot → JSON helpers ==========
 
     private static JsonObject playerJson(PlayerSnapshot p) {
-        JsonObject o = new JsonObject();
-        if (p.name != null) o.addProperty("name", p.name);
-        o.add("pos", posArray(p.worldX, p.worldY, p.plane));
-        o.addProperty("animation", p.animation);
-        o.addProperty("idle", p.idle);
-        o.addProperty("moving", p.moving);
-        o.addProperty("combatLevel", p.combatLevel);
-        return o;
+        return ActorJson.player(p);
     }
 
     private static JsonObject resourcesJson(PlayerSnapshot p) {
@@ -699,25 +811,11 @@ public class McpToolHandler {
     }
 
     private static JsonObject npcSummary(NpcSnapshot n) {
-        JsonObject o = new JsonObject();
-        o.addProperty("index", n.index);
-        o.addProperty("id", n.id);
-        if (n.name != null) o.addProperty("name", n.name);
-        o.add("pos", posArray(n.worldX, n.worldY, n.plane));
-        JsonArray hp = new JsonArray();
-        hp.add(n.healthRatio); hp.add(n.healthScale);
-        o.add("hp", hp);
-        return o;
+        return ActorJson.npcSummary(n);
     }
 
     private static JsonObject npcDetail(NpcSnapshot n) {
-        JsonObject o = npcSummary(n);
-        o.addProperty("animation", n.animation);
-        if (n.actions != null) {
-            JsonArray a = nonEmptyActionsArray(n.actions);
-            if (a.size() > 0) o.add("actions", a);
-        }
-        return o;
+        return ActorJson.npcDetail(n);
     }
 
     private JsonObject skillsJson() {
@@ -745,6 +843,12 @@ public class McpToolHandler {
     private static JsonArray boundsArray(Rectangle r) {
         JsonArray a = new JsonArray();
         a.add(r.x); a.add(r.y); a.add(r.width); a.add(r.height);
+        return a;
+    }
+
+    private static JsonArray sceneArray(int x, int y) {
+        JsonArray a = new JsonArray();
+        a.add(x); a.add(y);
         return a;
     }
 
@@ -780,6 +884,95 @@ public class McpToolHandler {
             try { out.add(Integer.parseInt(t)); } catch (NumberFormatException ignored) {}
         }
         return out.isEmpty() ? null : out;
+    }
+
+    private static int parseIntArg(String args, String key, Integer fallback) {
+        String raw = McpHttpServer.parseStringField(args, key);
+        if (raw == null || raw.isBlank()) {
+            return fallback != null ? fallback : -1;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            return fallback != null ? fallback : -1;
+        }
+    }
+
+    private static JsonObject collisionTileJson(int worldX, int worldY, int plane,
+                                                int sceneX, int sceneY, int[][] flags) {
+        int raw = flags[sceneX][sceneY];
+        JsonObject tile = new JsonObject();
+        tile.add("pos", posArray(worldX, worldY, plane));
+        tile.add("scene", sceneArray(sceneX, sceneY));
+        tile.addProperty("raw", raw);
+        tile.addProperty("rawHex", "0x" + Integer.toHexString(raw));
+        tile.add("movement", movementFlagsJson(raw));
+        tile.add("lineOfSight", lineOfSightFlagsJson(raw));
+        tile.add("travel", travelJson(sceneX, sceneY, flags));
+        return tile;
+    }
+
+    private static JsonObject movementFlagsJson(int raw) {
+        JsonObject movement = new JsonObject();
+        movement.addProperty("northWest", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_NORTH_WEST));
+        movement.addProperty("north", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_NORTH));
+        movement.addProperty("northEast", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_NORTH_EAST));
+        movement.addProperty("east", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_EAST));
+        movement.addProperty("southEast", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_EAST));
+        movement.addProperty("south", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH));
+        movement.addProperty("southWest", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH_WEST));
+        movement.addProperty("west", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_WEST));
+        movement.addProperty("object", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_OBJECT));
+        movement.addProperty("floorDecoration", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_FLOOR_DECORATION));
+        movement.addProperty("floor", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_FLOOR));
+        movement.addProperty("full", has(raw, CollisionDataFlag.BLOCK_MOVEMENT_FULL));
+        return movement;
+    }
+
+    private static JsonObject lineOfSightFlagsJson(int raw) {
+        JsonObject lineOfSight = new JsonObject();
+        lineOfSight.addProperty("north", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_NORTH));
+        lineOfSight.addProperty("east", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_EAST));
+        lineOfSight.addProperty("south", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_SOUTH));
+        lineOfSight.addProperty("west", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_WEST));
+        lineOfSight.addProperty("full", has(raw, CollisionDataFlag.BLOCK_LINE_OF_SIGHT_FULL));
+        return lineOfSight;
+    }
+
+    private static JsonObject travelJson(int sceneX, int sceneY, int[][] flags) {
+        JsonObject travel = new JsonObject();
+        travel.addProperty("north", canTravel(sceneX, sceneY, 0, 1,
+            CollisionDataFlag.BLOCK_MOVEMENT_NORTH, CollisionDataFlag.BLOCK_MOVEMENT_SOUTH, flags));
+        travel.addProperty("east", canTravel(sceneX, sceneY, 1, 0,
+            CollisionDataFlag.BLOCK_MOVEMENT_EAST, CollisionDataFlag.BLOCK_MOVEMENT_WEST, flags));
+        travel.addProperty("south", canTravel(sceneX, sceneY, 0, -1,
+            CollisionDataFlag.BLOCK_MOVEMENT_SOUTH, CollisionDataFlag.BLOCK_MOVEMENT_NORTH, flags));
+        travel.addProperty("west", canTravel(sceneX, sceneY, -1, 0,
+            CollisionDataFlag.BLOCK_MOVEMENT_WEST, CollisionDataFlag.BLOCK_MOVEMENT_EAST, flags));
+        return travel;
+    }
+
+    private static boolean canTravel(int sceneX, int sceneY, int dx, int dy,
+                                     int fromFlag, int toFlag, int[][] flags) {
+        int toX = sceneX + dx;
+        int toY = sceneY + dy;
+        if (!isSceneTile(toX, toY, flags)) {
+            return false;
+        }
+        int fromRaw = flags[sceneX][sceneY];
+        int toRaw = flags[toX][toY];
+        return (fromRaw & (CollisionDataFlag.BLOCK_MOVEMENT_FULL | fromFlag)) == 0
+            && (toRaw & (CollisionDataFlag.BLOCK_MOVEMENT_FULL | toFlag)) == 0;
+    }
+
+    private static boolean has(int raw, int flag) {
+        return (raw & flag) != 0;
+    }
+
+    private static boolean isSceneTile(int sceneX, int sceneY, int[][] flags) {
+        return sceneX >= 0 && sceneY >= 0
+            && sceneX < Constants.SCENE_SIZE && sceneY < Constants.SCENE_SIZE
+            && sceneX < flags.length && flags[sceneX] != null && sceneY < flags[sceneX].length;
     }
 
     private JsonObject makeRoot() {

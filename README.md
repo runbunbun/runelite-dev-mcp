@@ -131,7 +131,7 @@ Point-in-time state queries:
 
 | Tool | Args | Purpose |
 |------|------|---------|
-| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, skills) | Player + world snapshot |
+| `state` | `inc` (CSV: player, resources, inventory, equipment, npcs, players, skills, instance) | Player + world snapshot |
 | `npc` | `n` (name), `i` (id CSV), `r` (radius) | NPCs near the player |
 | `obj` | `n` (name), `i` (id CSV) | Game objects in the scene |
 | `ground` | `n` (name) | Ground items near the player |
@@ -140,12 +140,13 @@ Point-in-time state queries:
 | `bank` | `n` (name substring, case-insensitive) | Bank contents (only when bank is open) |
 | `dialog` | — | Current dialogue state |
 | `widget` | `m` (`get` \| `pick`), `g` (group), `c` (child) | Widget tree introspection |
-| `var` | `m=v`, `varbitId` | Varbit / varplayer values |
+| `var` | `m` (`v` varbit, default \| `p` varp \| `ci` varc-int \| `cs` varc-string), `id` | Read a var by id. `varbitId` is kept as a deprecated alias for `id` in varbit mode. Varc modes surface client-side interface/session state (e.g. typed search text) that isn't in varbits/varps. |
 | `menu` | — | Right-click menu entries at the cursor |
 | `chat` | `lines` (default 10) | Recent chat messages |
 | `screenshot` | — | Game viewport PNG. Over MCP `tools/call` it's wrapped as `{"type":"image","data":"<base64>","mimeType":"image/png"}` so MCP-aware clients render it inline. |
 | `loginstate` | — | Login state (`LOGGED_IN`, `LOGGING_IN`, etc.) |
 | `prayer` | — | Active prayers (list) + prayer point pool (`current` / `max`) |
+| `collision` | `x`, `y`, `plane`, `radius` | Collision flags for the local player tile or a loaded-scene world tile/radius, including raw flags, decoded movement/LOS blockers, and cardinal travel checks |
 
 Historical / event-stream queries (server-side ring buffers, updated every tick):
 
@@ -154,7 +155,22 @@ Historical / event-stream queries (server-side ring buffers, updated every tick)
 | `buffer` | `t` (default `-5`), `types`, `names`, `ids`, `tile`, `area` | Per-tick state of player / NPCs / objects / ground items / other players / skills / hits. `t > 0` returns a full absolute snapshot at that tick; `t < 0` returns the last `|t|` ticks as sparse deltas with `added` / `removed` / `changed` per entity type. The `skills` type emits a per-skill object with only the changed fields (`gained` XP, `real` level-ups, `boosted` for temporary boosts / damage / regen). The `hits` type emits the list of `HitsplatApplied` events that landed on that tick. Ticks with no matching changes are omitted and counted in `ticksOmitted`. Capacity 200 ticks (~2 min). |
 | `actions` | `t` (default 50), `option`, `target`, `opcodes`, `ids`, `since` | Recent `MenuOptionClicked` events: user clicks plus plugin / macro actions invoked through the public menu API (`Client.invokeMenuAction`, `Client.menuAction`). Does **not** catch actions that bypass the menu and send raw packets. Newest-last. Capacity 500 actions. |
 
-All responses include `_meta.gameTick` (OSRS runs at 600ms/tick).
+All responses include `_meta.gameTick` (OSRS runs at 600ms/tick). Actor responses
+include animation, movement, health, interaction target, and recent hitsplat context
+where available.
+
+### `state inc=instance` — instance/region translation
+
+Inside an OSRS instance (POH, raids, NMZ, …) the 104×104 scene is assembled from 8×8
+template chunks copied — and rotated — from elsewhere in the world, so an actor's reported
+world coordinates are arbitrary numbers that don't map to any real location. The `instance`
+section exposes the data needed to translate them back:
+
+- `instanced`, `baseX`, `baseY`, `plane`, `mapRegions` — always present.
+- When instanced, `player` gives the local player's `scene` tile and its translated
+  `template` world tile `[x, y, plane]`, and `chunks` lists every non-empty scene chunk with
+  its `rotation` and source `templateX` / `templateY` / `templatePlane` so a consumer can
+  translate any tile itself. The translation mirrors RuneLite's `WorldPoint.fromLocalInstance`.
 
 ## Download
 
