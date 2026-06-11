@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.runelite"
-version = "0.1.1"
+version = "0.1.2"
 
 repositories {
     mavenCentral()
@@ -32,6 +32,8 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("com.google.code.gson:gson:2.10.1")
+    testImplementation("net.runelite:runelite-api:$runeliteVersion")
+    testRuntimeOnly("net.runelite:client:$runeliteVersion")
 }
 
 tasks.test {

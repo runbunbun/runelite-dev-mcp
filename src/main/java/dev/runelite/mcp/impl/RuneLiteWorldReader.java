@@ -373,6 +373,16 @@ public class RuneLiteWorldReader implements WorldReader {
     }
 
     @Override
+    public int getVarcIntValue(int varcId) {
+        return client.getVarcIntValue(varcId);
+    }
+
+    @Override
+    public String getVarcStrValue(int varcId) {
+        return client.getVarcStrValue(varcId);
+    }
+
+    @Override
     public boolean isWidgetVisible(int group, int child) {
         Widget w = client.getWidget(group, child);
         return w != null && !w.isHidden();
@@ -487,6 +497,17 @@ public class RuneLiteWorldReader implements WorldReader {
     @Override
     public boolean isInInstance() {
         return client.isInInstancedRegion();
+    }
+
+    @Override
+    public int[] getMapRegions() {
+        int[] regions = client.getMapRegions();
+        return regions == null ? new int[0] : regions;
+    }
+
+    @Override
+    public int[][][] getInstanceTemplateChunks() {
+        return client.isInInstancedRegion() ? client.getInstanceTemplateChunks() : null;
     }
 
     // --- Camera / viewport ---
