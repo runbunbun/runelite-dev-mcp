@@ -1,10 +1,12 @@
 package dev.runelite.mcp;
 
 import dev.runelite.mcp.api.WorldReader;
+import dev.runelite.mcp.api.snapshot.GraphicsObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.GroundItemSnapshot;
 import dev.runelite.mcp.api.snapshot.NpcSnapshot;
 import dev.runelite.mcp.api.snapshot.ObjectSnapshot;
 import dev.runelite.mcp.api.snapshot.PlayerSnapshot;
+import dev.runelite.mcp.api.snapshot.ProjectileSnapshot;
 import net.runelite.api.Actor;
 import net.runelite.api.Client;
 import net.runelite.api.Hitsplat;
@@ -46,6 +48,10 @@ public class StateBuffer {
         public final int[] skillBoostedLevel;
         /** Hitsplats applied during this tick (any actor — local player, other players, NPCs). */
         public final List<TickHit> hits;
+        /** Projectiles in flight on this tick (transient — like hits, not diffed across ticks). */
+        public final List<ProjectileSnapshot> projectiles;
+        /** Ground graphics objects present on this tick (AoE telegraphs, spotanims). */
+        public final List<GraphicsObjectSnapshot> graphicsObjects;
 
         TickSnapshot(int tick, long timestampMs,
                      PlayerSnapshot player,
@@ -54,7 +60,9 @@ public class StateBuffer {
                      List<GroundItemSnapshot> groundItems,
                      List<PlayerSnapshot> otherPlayers,
                      int[] skillXp, int[] skillRealLevel, int[] skillBoostedLevel,
-                     List<TickHit> hits) {
+                     List<TickHit> hits,
+                     List<ProjectileSnapshot> projectiles,
+                     List<GraphicsObjectSnapshot> graphicsObjects) {
             this.tick = tick;
             this.timestampMs = timestampMs;
             this.player = player;
@@ -66,6 +74,8 @@ public class StateBuffer {
             this.skillRealLevel = skillRealLevel != null ? skillRealLevel : new int[0];
             this.skillBoostedLevel = skillBoostedLevel != null ? skillBoostedLevel : new int[0];
             this.hits = hits != null ? hits : Collections.emptyList();
+            this.projectiles = projectiles != null ? projectiles : Collections.emptyList();
+            this.graphicsObjects = graphicsObjects != null ? graphicsObjects : Collections.emptyList();
         }
     }
 
@@ -159,7 +169,9 @@ public class StateBuffer {
             world.getGroundItems(),
             world.getOtherPlayers(),
             xp, real, boosted,
-            tickHits
+            tickHits,
+            world.getProjectiles(),
+            world.getGraphicsObjects()
         );
         synchronized (lock) {
             buffer[head] = snap;
