@@ -698,6 +698,11 @@ public class RuneLiteWorldReader implements WorldReader {
     }
 
     @Override
+    public boolean isContainerLoaded(int containerId) {
+        return client.getItemContainer(containerId) != null;
+    }
+
+    @Override
     public List<GeOfferSnapshot> getGrandExchangeOffers() {
         GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
         if (offers == null) return Collections.emptyList();

@@ -31,6 +31,12 @@ public interface WorldReader {
     List<ItemSnapshot> getBankItems();
     /** Read any item container by its InventoryID (e.g. seed vault 626, looting bag 516). Empty when absent. */
     default List<ItemSnapshot> getItemContainerById(int containerId) { return java.util.Collections.emptyList(); }
+    /**
+     * Whether the given container currently exists client-side. Distinguishes a genuinely
+     * empty container from one that was never loaded (e.g. bank never opened this session) —
+     * both of which return an empty list from {@link #getItemContainerById(int)}.
+     */
+    default boolean isContainerLoaded(int containerId) { return false; }
     /** Active Grand Exchange offers (non-EMPTY slots), item names resolved. Empty when none/unsupported. */
     default List<GeOfferSnapshot> getGrandExchangeOffers() { return java.util.Collections.emptyList(); }
 

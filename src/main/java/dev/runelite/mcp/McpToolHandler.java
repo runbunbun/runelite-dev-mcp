@@ -658,6 +658,9 @@ public class McpToolHandler {
         List<ItemSnapshot> items = world.getItemContainerById(cid);
         JsonObject root = makeRoot();
         root.addProperty("id", cid);
+        // `loaded:false` means the container doesn't exist client-side yet (e.g. bank never
+        // opened this session) — distinct from a loaded-but-empty container (loaded:true, total:0).
+        root.addProperty("loaded", world.isContainerLoaded(cid));
         root.addProperty("total", items.size());
         JsonArray arr = new JsonArray();
         for (ItemSnapshot it : items) arr.add(itemDetail(it));

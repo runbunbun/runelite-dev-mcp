@@ -147,7 +147,7 @@ Point-in-time state queries:
 | `loginstate` | — | Login state (`LOGGED_IN`, `LOGGING_IN`, etc.) |
 | `prayer` | — | Active prayers (list) + prayer point pool (`current` / `max`) |
 | `collision` | `x`, `y`, `plane`, `radius` | Collision flags for the local player tile or a loaded-scene world tile/radius, including raw flags, decoded movement/LOS blockers, and cardinal travel checks |
-| `container` | `id` (numeric InventoryID or name: `inventory`, `equipment`, `bank`, `looting_bag`, `seed_vault`, `group_storage`) | Read any item container by id — generalizes `inv`/`equip`/`bank` to seed vault, looting bag, GIM storage, etc. |
+| `container` | `id` (numeric InventoryID or name: `inventory`, `equipment`, `bank`, `looting_bag`, `seed_vault`, `group_storage`) | Read any item container by id — generalizes `inv`/`equip`/`bank` to seed vault, looting bag, GIM storage, etc. Returns `loaded` (false when the container was never opened this session, distinct from loaded-but-empty) + `total` + `items`. |
 | `def` | `type` (`item` \| `npc` \| `obj`), `id` | Resolve a cache definition by id → name, actions, and stats (item: members/stackable/tradeable/`storePrice` (cache store value, not live GE price)/haPrice; npc: combat level/size; obj: size), without the entity being in-scene |
 | `ge` | — | Active Grand Exchange offers: per slot `state` (BUYING/SELLING/BOUGHT/SOLD/CANCELLED_*), `buy` flag, item id/name, `price` (per item), `quantitySold`/`totalQuantity` progress, and `spent` (total gp moved — spent on buys, received on sells). EMPTY slots omitted. |
 
