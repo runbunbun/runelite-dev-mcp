@@ -149,7 +149,7 @@ Point-in-time state queries:
 | `collision` | `x`, `y`, `plane`, `radius` | Collision flags for the local player tile or a loaded-scene world tile/radius, including raw flags, decoded movement/LOS blockers, and cardinal travel checks |
 | `container` | `id` (numeric InventoryID or name: `inventory`, `equipment`, `bank`, `looting_bag`, `seed_vault`, `group_storage`) | Read any item container by id — generalizes `inv`/`equip`/`bank` to seed vault, looting bag, GIM storage, etc. |
 | `def` | `type` (`item` \| `npc` \| `obj`), `id` | Resolve a cache definition by id → name, actions, and stats (item: members/stackable/tradeable/price/haPrice; npc: combat level/size; obj: size), without the entity being in-scene |
-| `ge` | — | Active Grand Exchange offers: per slot `state` (BUYING/SELLING/BOUGHT/SOLD/CANCELLED_*), `buy` flag, item id/name, `price` (per item), `quantitySold`/`totalQuantity` progress, and `spent` (gp moved). EMPTY slots omitted. |
+| `ge` | — | Active Grand Exchange offers: per slot `state` (BUYING/SELLING/BOUGHT/SOLD/CANCELLED_*), `buy` flag, item id/name, `price` (per item), `quantitySold`/`totalQuantity` progress, and `spent` (total gp moved — spent on buys, received on sells). EMPTY slots omitted. |
 
 Historical / event-stream queries (server-side ring buffers, updated every tick):
 
@@ -182,9 +182,11 @@ section exposes the data needed to translate them back:
   `actorType` / `local` when the endpoint is an actor), and `ticksToImpact` — the headline
   field for "dodge this" timing. Sorted local-player-target first, then soonest impact.
 - **`graphics`** — ground graphics objects / spotanims (AoE telegraphs, splashes): `id`,
-  world `pos`, `ageTicks`, `frame`, and `finished` when expiring.
+  world `pos`, `z` (local vertical height above the tile, not a plane), `ageTicks`, `frame`,
+  and `finished` when expiring.
 - **`camera`** — `yaw`, `pitch`, `zoom`, `pos` `[x,y,z]`, and `canvas` `[w,h]` — enough to
   project world tiles to screen space and correlate the `screenshot` output with entity coords.
+  Note `pos` is in **local scene units** (128 per tile), not world tiles like entity `pos`.
 
 On top of the raw camera, the live `npc` / `obj` / `ground` tools now attach a `screen`
 `[px, py]` field to each entity that is currently on-screen (omitted when off-screen), so a

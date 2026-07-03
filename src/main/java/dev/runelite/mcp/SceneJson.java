@@ -50,6 +50,8 @@ public final class SceneJson {
 
     /**
      * One ground graphics object. {@code id} is the spotanim id, {@code pos} its world tile,
+     * {@code z} the object's local vertical height (from {@link GraphicsObjectSnapshot#z},
+     * i.e. RuneLite's {@code GraphicsObject.getZ()}) — height above the tile, not a plane,
      * {@code ageTicks} how long it has been alive (AoE markers are often keyed off age), and
      * {@code finished:true} marks it as expiring this tick.
      */

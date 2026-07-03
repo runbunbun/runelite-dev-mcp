@@ -287,6 +287,8 @@ public class McpToolHandler {
         o.addProperty("yaw", world.getCameraYaw());
         o.addProperty("pitch", world.getCameraPitch());
         o.addProperty("zoom", world.getCameraZoom());
+        // Camera pos is in local scene units (128 per tile), NOT world tiles like every
+        // entity `pos` elsewhere in these tools. Don't compare it directly to a tile coord.
         JsonArray pos = new JsonArray();
         pos.add(world.getCameraX()); pos.add(world.getCameraY()); pos.add(world.getCameraZ());
         o.add("pos", pos);
@@ -753,6 +755,7 @@ public class McpToolHandler {
             j.addProperty("price", o.price);
             j.addProperty("quantitySold", o.quantitySold);
             j.addProperty("totalQuantity", o.totalQuantity);
+            // Total gp moved so far: gp spent on a buy offer, gp received on a sell offer.
             j.addProperty("spent", o.spent);
             arr.add(j);
         }
