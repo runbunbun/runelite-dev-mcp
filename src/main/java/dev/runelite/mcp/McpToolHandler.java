@@ -702,7 +702,9 @@ public class McpToolHandler {
                 root.addProperty("members", c.isMembers());
                 root.addProperty("stackable", c.isStackable());
                 root.addProperty("tradeable", c.isTradeable());
-                root.addProperty("price", c.getPrice());
+                // Cache store/base value, NOT the live GE market price — use the `ge` tool
+                // for real offer prices. `haPrice` is the high-alchemy value.
+                root.addProperty("storePrice", c.getPrice());
                 root.addProperty("haPrice", c.getHaPrice());
                 if (c.getLinkedNoteId() != -1) root.addProperty("linkedNoteId", c.getLinkedNoteId());
                 JsonArray a = nonEmptyActionsArray(c.getInventoryActions());
